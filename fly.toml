@@ -1,29 +1,32 @@
-# fly.toml app configuration file generated for music-storage-backend
+# fly.toml app configuration file generated for music-storage-backend on 2026-10-06T17:07:25Z
+#
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
 
-app = "music-storage-backend"
-primary_region = "sin"
+app = 'music-storage-backend'
+primary_region = 'ams'
 
 [build]
 
 [env]
-  PORT = "8000"
-  HOST = "0.0.0.0"
-  DEBUG = "False"
-  DATABASE_NAME = "music_app_db"
-  JWT_ALGORITHM = "HS256"
-  ACCESS_TOKEN_EXPIRE_MINUTES = "30"
-  REFRESH_TOKEN_EXPIRE_DAYS = "30"
+  ACCESS_TOKEN_EXPIRE_MINUTES = '30'
+  DATABASE_NAME = 'music_app_db'
+  DEBUG = 'False'
+  HOST = '0.0.0.0'
+  JWT_ALGORITHM = 'HS256'
+  PORT = '8000'
+  REFRESH_TOKEN_EXPIRE_DAYS = '30'
 
 [http_service]
   internal_port = 8000
   force_https = true
-  auto_stop_machines = "stop"
+  auto_stop_machines = 'stop'
   auto_start_machines = true
   min_machines_running = 0
-  processes = ["app"]
+  processes = ['app']
 
 [[vm]]
-  memory = "1gb"
-  cpu_kind = "shared"
+  memory = '1gb'
+  cpu_kind = 'shared'
   cpus = 1
+  memory_mb = 512
