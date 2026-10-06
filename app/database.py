@@ -1,3 +1,4 @@
+import certifi
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 from app.config import settings
 
@@ -10,7 +11,11 @@ db_manager = DatabaseManager()
 async def connect_to_mongo():
     try:
         print(f"Connecting to MongoDB at {settings.MONGODB_URL}...")
-        db_manager.client = AsyncIOMotorClient(settings.MONGODB_URL, serverSelectionTimeoutMS=5000)
+        db_manager.client = AsyncIOMotorClient(
+            settings.MONGODB_URL,
+            tlsCAFile=certifi.where(),
+            serverSelectionTimeoutMS=5000,
+        )
         db_manager.db = db_manager.client[settings.DATABASE_NAME]
         # Ping database to confirm connection
         await db_manager.client.admin.command('ping')
