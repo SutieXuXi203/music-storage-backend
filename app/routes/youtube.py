@@ -87,9 +87,8 @@ def process_youtube_download(url: str, format_type: str) -> dict:
         base_ydl_opts["cookiefile"] = os.path.join(DOWNLOADS_DIR, "www.youtube.com_cookies.txt")
         has_cookies = True
 
-    # Khi có cookie người dùng thật, bỏ ép buộc client di động để tận dụng phiên đăng nhập web
-    if has_cookies:
-        base_ydl_opts.pop("extractor_args", None)
+    # Giữ player_client di động kể cả khi có cookies để tránh bị YouTube chặn bot trên Cloud IP
+    # Không xóa extractor_args
 
     if format_type.lower() == "mp3":
         ydl_opts = {
@@ -125,29 +124,74 @@ def process_youtube_download(url: str, format_type: str) -> dict:
         target_ext = "mp4"
         media_type = "video/mp4"
 
+    # Thử các chiến lược tải linh hoạt nếu bị YouTube chặn bot
+    strategies = [
+        # Chiến lược 1: Dùng cấu hình hiện tại (với cookies nếu có và player_client mobile)
+        dict(ydl_opts),
+        # Chiến lược 2: Nếu thất bại do cookie lỗi/xoay, thử với client ['ios', 'android']
+        {
+            **ydl_opts,
+            "extractor_args": {
+                "youtube": {
+                    "player_client": ["ios", "android"],
+                }
+            },
+        },
+        # Chiến lược 3: Thử không dùng cookie nếu cookie bị Google vô hiệu hóa
+        {
+            **{k: v for k, v in ydl_opts.items() if k != "cookiefile"},
+            "extractor_args": {
+                "youtube": {
+                    "player_client": ["android", "ios", "mweb"],
+                }
+            },
+        },
+    ]
+
+    last_error = None
+    info = None
+
+    for idx, strat in enumerate(strategies):
+        try:
+            with yt_dlp.YoutubeDL(strat) as ydl:
+                info = ydl.extract_info(url, download=True)
+                if info:
+                    break
+        except Exception as e:
+            last_error = e
+            err_str = str(e)
+            print(f"[YouTube] Chiến lược {idx + 1} không thành công: {err_str[:120]}")
+            # Nếu không phải lỗi liên quan bot hay format, dừng sớm
+            if "bot" not in err_str.lower() and "sign in" not in err_str.lower() and "cookie" not in err_str.lower():
+                break
+
+    if not info:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Lỗi khi xử lý link YouTube: {str(last_error)}",
+        )
+
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            video_id = info.get("id")
-            title = info.get("title", "downloaded_track")
-            artist = info.get("uploader", "Unknown Artist")
-            duration = info.get("duration", 0)
-            thumbnail = info.get("thumbnail")
+        video_id = info.get("id")
+        title = info.get("title", "downloaded_track")
+        artist = info.get("uploader", "Unknown Artist")
+        duration = info.get("duration", 0)
+        thumbnail = info.get("thumbnail")
 
-            # Đường dẫn file đã xử lý
-            file_path = os.path.join(DOWNLOADS_DIR, f"{video_id}.{target_ext}")
-            if not os.path.exists(file_path):
-                # Fallback tìm kiếm file trùng video_id và target_ext
-                for fname in os.listdir(DOWNLOADS_DIR):
-                    if fname.startswith(video_id) and fname.endswith(f".{target_ext}"):
-                        file_path = os.path.join(DOWNLOADS_DIR, fname)
-                        break
+        # Đường dẫn file đã xử lý
+        file_path = os.path.join(DOWNLOADS_DIR, f"{video_id}.{target_ext}")
+        if not os.path.exists(file_path):
+            # Fallback tìm kiếm file trùng video_id và target_ext
+            for fname in os.listdir(DOWNLOADS_DIR):
+                if fname.startswith(video_id) and fname.endswith(f".{target_ext}"):
+                    file_path = os.path.join(DOWNLOADS_DIR, fname)
+                    break
 
-            if not os.path.exists(file_path):
-                raise RuntimeError(f"Không tìm thấy file kết quả sau khi tải: {file_path}")
+        if not os.path.exists(file_path):
+            raise RuntimeError(f"Không tìm thấy file kết quả sau khi tải: {file_path}")
 
-            safe_title = sanitize_filename(title) or "music"
-            download_filename = f"{safe_title}.{target_ext}"
+        safe_title = sanitize_filename(title) or "music"
+        download_filename = f"{safe_title}.{target_ext}"
             file_size = os.path.getsize(file_path)
 
             return {

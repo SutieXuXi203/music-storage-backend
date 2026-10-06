@@ -1,0 +1,7 @@
+venv/
+.venv/
+__pycache__/
+*.pyc
+.git/
+downloads/*.mp3
+downloads/*.mp4
