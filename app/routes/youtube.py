@@ -74,17 +74,39 @@ def process_youtube_download(url: str, format_type: str) -> dict:
     has_cookies = False
     if raw_cookies:
         try:
-            with open(cookie_file, "w", encoding="utf-8") as f:
-                f.write(raw_cookies)
+            cleaned_cookies = raw_cookies.replace("\ufeff", "").strip()
+            if not cleaned_cookies.startswith("# Netscape"):
+                cleaned_cookies = "# Netscape HTTP Cookie File\n" + cleaned_cookies
+            with open(cookie_file, "w", encoding="utf-8", newline="\n") as f:
+                f.write(cleaned_cookies + "\n")
             base_ydl_opts["cookiefile"] = cookie_file
             has_cookies = True
         except Exception as e:
             print(f"[YouTube] Lỗi ghi cookie: {e}")
     elif os.path.exists(cookie_file):
+        try:
+            with open(cookie_file, "r", encoding="utf-8", errors="ignore") as f:
+                content = f.read().replace("\ufeff", "").strip()
+            if not content.startswith("# Netscape"):
+                content = "# Netscape HTTP Cookie File\n" + content
+            with open(cookie_file, "w", encoding="utf-8", newline="\n") as f:
+                f.write(content + "\n")
+        except Exception:
+            pass
         base_ydl_opts["cookiefile"] = cookie_file
         has_cookies = True
     elif os.path.exists(os.path.join(DOWNLOADS_DIR, "www.youtube.com_cookies.txt")):
-        base_ydl_opts["cookiefile"] = os.path.join(DOWNLOADS_DIR, "www.youtube.com_cookies.txt")
+        www_cookie = os.path.join(DOWNLOADS_DIR, "www.youtube.com_cookies.txt")
+        try:
+            with open(www_cookie, "r", encoding="utf-8", errors="ignore") as f:
+                content = f.read().replace("\ufeff", "").strip()
+            if not content.startswith("# Netscape"):
+                content = "# Netscape HTTP Cookie File\n" + content
+            with open(www_cookie, "w", encoding="utf-8", newline="\n") as f:
+                f.write(content + "\n")
+        except Exception:
+            pass
+        base_ydl_opts["cookiefile"] = www_cookie
         has_cookies = True
 
     # Giữ player_client di động kể cả khi có cookies để tránh bị YouTube chặn bot trên Cloud IP
