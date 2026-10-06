@@ -71,15 +71,25 @@ def process_youtube_download(url: str, format_type: str) -> dict:
     # Hỗ trợ nạp cookies từ biến môi trường YOUTUBE_COOKIES hoặc file cookies.txt
     cookie_file = os.path.join(DOWNLOADS_DIR, "cookies.txt")
     raw_cookies = os.getenv("YOUTUBE_COOKIES")
+    has_cookies = False
     if raw_cookies:
         try:
             with open(cookie_file, "w", encoding="utf-8") as f:
                 f.write(raw_cookies)
             base_ydl_opts["cookiefile"] = cookie_file
+            has_cookies = True
         except Exception as e:
             print(f"[YouTube] Lỗi ghi cookie: {e}")
     elif os.path.exists(cookie_file):
         base_ydl_opts["cookiefile"] = cookie_file
+        has_cookies = True
+    elif os.path.exists(os.path.join(DOWNLOADS_DIR, "www.youtube.com_cookies.txt")):
+        base_ydl_opts["cookiefile"] = os.path.join(DOWNLOADS_DIR, "www.youtube.com_cookies.txt")
+        has_cookies = True
+
+    # Khi có cookie người dùng thật, bỏ ép buộc client di động để tận dụng phiên đăng nhập web
+    if has_cookies:
+        base_ydl_opts.pop("extractor_args", None)
 
     if format_type.lower() == "mp3":
         ydl_opts = {
