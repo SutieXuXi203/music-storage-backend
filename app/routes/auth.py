@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 import re
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError, jwt
 import bcrypt
@@ -290,16 +290,46 @@ async def register(req: RegisterRequest):
 @router.post(
     "/login",
     summary="Đăng nhập tài khoản",
-    description="Đăng nhập bằng tên đăng nhập và mật khẩu để nhận Access Token và Refresh Token",
+    description="Đăng nhập bằng tên đăng nhập và mật khẩu để nhận Access Token và Refresh Token (hỗ trợ cả JSON body và Form-data)",
     response_model=LoginResponse,
 )
-async def login(form: OAuth2PasswordRequestForm = Depends()):
+async def login(
+    request: Request,
+):
     db = get_database()
     if db is None:
         raise HTTPException(status_code=503, detail="Cơ sở dữ liệu không khả dụng")
 
-    user = await db.users.find_one({"username": form.username})
-    if not user or not verify_password(form.password, user["hashed_password"]):
+    username = None
+    password = None
+
+    # 1. Thử đọc từ JSON body
+    content_type = request.headers.get("content-type", "").lower()
+    if "application/json" in content_type:
+        try:
+            body = await request.json()
+            username = body.get("username")
+            password = body.get("password")
+        except Exception:
+            pass
+
+    # 2. Thử đọc từ Form data
+    if not username or not password:
+        try:
+            form = await request.form()
+            username = form.get("username")
+            password = form.get("password")
+        except Exception:
+            pass
+
+    if not username or not password:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Vui lòng cung cấp đầy đủ tên đăng nhập (username) và mật khẩu (password)",
+        )
+
+    user = await db.users.find_one({"username": username})
+    if not user or not verify_password(password, user["hashed_password"]):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Tên đăng nhập hoặc mật khẩu không chính xác",
@@ -323,6 +353,7 @@ async def login(form: OAuth2PasswordRequestForm = Depends()):
         refresh_token=refresh_token,
         expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
     )
+
 
 
 @router.post(
