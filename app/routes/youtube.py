@@ -192,20 +192,20 @@ def process_youtube_download(url: str, format_type: str) -> dict:
 
         safe_title = sanitize_filename(title) or "music"
         download_filename = f"{safe_title}.{target_ext}"
-            file_size = os.path.getsize(file_path)
+        file_size = os.path.getsize(file_path)
 
-            return {
-                "id": video_id,
-                "title": title,
-                "artist": artist,
-                "duration": duration,
-                "thumbnail": thumbnail,
-                "format": target_ext,
-                "file_path": file_path,
-                "download_filename": download_filename,
-                "file_size": file_size,
-                "media_type": media_type,
-            }
+        return {
+            "id": video_id,
+            "title": title,
+            "artist": artist,
+            "duration": duration,
+            "thumbnail": thumbnail,
+            "format": target_ext,
+            "file_path": file_path,
+            "download_filename": download_filename,
+            "file_size": file_size,
+            "media_type": media_type,
+        }
     except Exception as e:
         raise HTTPException(
             status_code=400,
