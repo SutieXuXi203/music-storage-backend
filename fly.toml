@@ -1,7 +1,5 @@
-# fly.toml app configuration file generated for music-storage-backend on 2026-10-06T17:07:25Z
-#
+# fly.toml app configuration file generated for music-storage-backend
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
-#
 
 app = 'music-storage-backend'
 primary_region = 'ams'
@@ -23,10 +21,8 @@ primary_region = 'ams'
   auto_stop_machines = 'stop'
   auto_start_machines = true
   min_machines_running = 0
-  processes = ['app']
 
 [[vm]]
   memory = '1gb'
   cpu_kind = 'shared'
   cpus = 1
-  memory_mb = 512
