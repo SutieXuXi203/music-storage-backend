@@ -61,7 +61,25 @@ def process_youtube_download(url: str, format_type: str) -> dict:
         "no_warnings": True,
         "js_runtimes": {"node": {}},
         "remote_components": {"ejs:github": {}},
+        "extractor_args": {
+            "youtube": {
+                "player_client": ["android", "ios", "mweb"],
+            }
+        },
     }
+
+    # Hỗ trợ nạp cookies từ biến môi trường YOUTUBE_COOKIES hoặc file cookies.txt
+    cookie_file = os.path.join(DOWNLOADS_DIR, "cookies.txt")
+    raw_cookies = os.getenv("YOUTUBE_COOKIES")
+    if raw_cookies:
+        try:
+            with open(cookie_file, "w", encoding="utf-8") as f:
+                f.write(raw_cookies)
+            base_ydl_opts["cookiefile"] = cookie_file
+        except Exception as e:
+            print(f"[YouTube] Lỗi ghi cookie: {e}")
+    elif os.path.exists(cookie_file):
+        base_ydl_opts["cookiefile"] = cookie_file
 
     if format_type.lower() == "mp3":
         ydl_opts = {
