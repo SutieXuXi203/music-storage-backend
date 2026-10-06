@@ -1,0 +1,32 @@
+# Virtual Environment
+venv/
+**/venv/
+.venv/
+**/.venv/
+
+# Python
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+
+# Environment & Credentials (CRITICAL: DO NOT COMMIT)
+.env
+**/.env
+*.env
+service_account.json
+**/service_account.json
+credentials*.json
+**/credentials*.json
+client_secrets.json
+**/client_secrets.json
+token.json
+**/token.json
+
+# Downloads & Temp Cache
+downloads/
+**/downloads/
+.pytest_cache/
+**/.pytest_cache/
+.DS_Store
+Thumbs.db
