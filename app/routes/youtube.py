@@ -236,12 +236,9 @@ async def handle_download_request(
                 drive_data["thumbnail_web_view_link"] = drive_thumb_res.get("web_view_link")
                 drive_data["thumbnail_direct_url"] = drive_thumb_res.get("direct_stream_url")
 
-            # Lưu vào MongoDB
+            # Lưu vào MongoDB (Chỉ lưu Metadata & ID, không lưu các link Drive cứng)
             db = get_database()
             if db is not None:
-                # Ưu tiên link ảnh thumbnail lưu trên Google Drive, nếu không có thì fallback sang URL YouTube
-                cover_url = (drive_thumb_res.get("direct_stream_url") if drive_thumb_res else None) or result["thumbnail"]
-
                 song_doc = {
                     "title": result["title"],
                     "artist": result["artist"],
@@ -249,9 +246,6 @@ async def handle_download_request(
                     "duration": result["duration"],
                     "genre": "YouTube",
                     "drive_file_id": drive_res.get("file_id"),
-                    "download_url": drive_res.get("direct_stream_url"),
-                    "web_view_link": drive_res.get("web_view_link"),
-                    "cover_url": cover_url,
                     "thumbnail_drive_file_id": drive_thumb_res.get("file_id") if drive_thumb_res else None,
                     "format": result["format"],
                     "file_size": result["file_size"],

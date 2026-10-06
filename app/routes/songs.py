@@ -14,14 +14,36 @@ router = APIRouter(prefix="/api/songs", tags=["Quản lý bài hát"])
 
 
 def serialize_song(song: dict) -> dict:
-    """Chuyển đổi MongoDB document ObjectId thành string id"""
+    """Chuyển đổi MongoDB document thành dict với id dạng chuỗi và sinh các đường link động từ Drive ID"""
     if not song:
         return {}
     song_copy = dict(song)
     if "_id" in song_copy:
         song_copy["id"] = str(song_copy["_id"])
         del song_copy["_id"]
+
+    drive_file_id = song_copy.get("drive_file_id")
+    thumb_id = song_copy.get("thumbnail_drive_file_id")
+
+    # Sinh đường dẫn stream và xem file trên Drive từ drive_file_id
+    if drive_file_id:
+        stream_url = drive_service.get_direct_stream_url(drive_file_id)
+        song_copy["download_url"] = stream_url
+        song_copy["stream_url"] = stream_url
+        song_copy["web_view_link"] = drive_service.get_web_view_link(drive_file_id)
+    else:
+        song_copy.setdefault("download_url", None)
+        song_copy.setdefault("stream_url", None)
+        song_copy.setdefault("web_view_link", None)
+
+    # Sinh đường dẫn ảnh bìa từ thumbnail_drive_file_id
+    if thumb_id:
+        song_copy["cover_url"] = drive_service.get_direct_stream_url(thumb_id)
+    elif "cover_url" not in song_copy:
+        song_copy["cover_url"] = None
+
     return song_copy
+
 
 
 @router.get(
@@ -188,17 +210,18 @@ async def upload_song_file(
             folder_id=subfolder_id,
         )
 
-        # 2. Lưu vào MongoDB
+        # 2. Lưu vào MongoDB (Chỉ lưu Metadata & ID, không lưu link Drive cứng)
+        file_stat = os.stat(tmp_path)
         song_doc = {
             "title": song_title,
             "artist": artist,
             "album": album,
             "genre": genre,
             "duration": 0,
+            "format": suffix.lstrip(".").lower() or "mp3",
+            "file_size": file_stat.st_size,
             "drive_file_id": drive_res["file_id"],
-            "download_url": drive_res["direct_stream_url"],
-            "web_view_link": drive_res["web_view_link"],
-            "cover_url": cover_url,
+            "thumbnail_drive_file_id": None,
             "user_id": str(current_user["_id"]),
             "user_username": current_user.get("username"),
             "created_at": datetime.now(timezone.utc),

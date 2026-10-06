@@ -88,27 +88,26 @@ Lưu trữ thông tin người dùng và liên kết thư mục Google Drive cá
 ```
 
 ### 3.2. Collection `songs`
-Lưu trữ thông tin chi tiết bài hát, liên kết tới người tải và file Google Drive:
+Lưu trữ thông tin metadata bài hát và mã định danh (ID) trên Google Drive (Tuyệt đối không lưu URL tĩnh, toàn bộ URL phát nhạc/ảnh bìa được sinh động ở tầng API):
 ```json
 {
-  "_id": ObjectId("670291ab9876543210fedcba"),
-  "title": "See You Again (feat. Charlie Puth)",
-  "artist": "Wiz Khalifa",
+  "_id": ObjectId("6ac4e4ececc87a7b1e612838"),
+  "title": "NO COMPASSO",
+  "artist": "defectivekid",
   "album": "YouTube",
   "genre": "YouTube",
-  "duration": 237,
-  "drive_file_id": "1A2B3C4D5E6F7G8H9I...",
-  "download_url": "https://lh3.googleusercontent.com/d/1A2B3C4D5E6F7G8H9I...",
-  "web_view_link": "https://drive.google.com/file/d/1A2B3C4D5E6F7G8H9I/view?usp=drivesdk",
-  "cover_url": "https://lh3.googleusercontent.com/d/1Z9Y8X7W6V5U4T3S2R...",
-  "thumbnail_drive_file_id": "1Z9Y8X7W6V5U4T3S2R...",
+  "duration": 89,
   "format": "mp3",
-  "file_size": 5712400,
-  "user_id": "67028bfa1234567890abcdef",
+  "file_size": 2146796,
+  "drive_file_id": "1LEKJq3Bc-dBmL4ir9h7dI_pIFagF48P8",
+  "thumbnail_drive_file_id": "1QZ4QiGTLxJcxsjticoz44V4FNr8P3K1s",
+  "user_id": "6ac4e088fed15528ccd07ba1",
   "user_username": "sutie",
-  "created_at": ISODate("2026-10-06T10:05:00Z")
+  "created_at": ISODate("2026-10-06T12:09:16.532Z")
 }
 ```
+> **Lưu ý tầng API (Serializer Response):** Khi Client gọi `GET /api/songs` hoặc `GET /api/songs/{id}`, Backend sẽ tự động ghép các ID trên thành các URL hoàn chỉnh (`download_url`, `stream_url`, `web_view_link`, `cover_url`) để Client có thể phát nhạc và tải ảnh bìa trực tiếp mà Database vẫn tinh gọn 100%.
+
 
 ---
 

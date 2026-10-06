@@ -240,5 +240,20 @@ class DriveService:
         """Xoá file hoặc thư mục trên Google Drive bất đồng bộ"""
         return await asyncio.to_thread(self.delete_file_sync, file_id)
 
+    @staticmethod
+    def get_direct_stream_url(file_id: Optional[str]) -> Optional[str]:
+        """Tạo đường dẫn phát nhạc hoặc tải trực tiếp từ mã file Google Drive"""
+        if not file_id:
+            return None
+        return f"https://drive.google.com/uc?export=download&id={file_id}"
+
+    @staticmethod
+    def get_web_view_link(file_id: Optional[str]) -> Optional[str]:
+        """Tạo đường dẫn xem file trên giao diện Web Google Drive từ mã file"""
+        if not file_id:
+            return None
+        return f"https://drive.google.com/file/d/{file_id}/view?usp=drivesdk"
+
 
 drive_service = DriveService()
+
