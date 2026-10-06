@@ -20,20 +20,50 @@ class DriveService:
         self._service = None
 
     def _get_service(self):
-        # 1. Ưu tiên OAuth 2.0 Credentials (token.json) - Hoạt động cho Gmail cá nhân không bị lỗi quota
+        import json
+
+        # 1. Hỗ trợ đọc token OAuth trực tiếp từ biến môi trường (tiện lợi khi deploy Cloud)
+        token_env = os.getenv("GOOGLE_TOKEN_JSON")
+        if token_env:
+            try:
+                info = json.loads(token_env)
+                creds = Credentials.from_authorized_user_info(info, SCOPES)
+                if creds and creds.expired and creds.refresh_token:
+                    creds.refresh(Request())
+                if creds and creds.valid:
+                    return build("drive", "v3", credentials=creds, cache_discovery=False)
+            except Exception as e:
+                print(f"[DriveService] Lỗi khi nạp GOOGLE_TOKEN_JSON: {e}")
+
+        # 2. Ưu tiên file token.json (OAuth 2.0 hoặc Render Secret Files)
         if os.path.exists(TOKEN_FILE):
             try:
                 creds = Credentials.from_authorized_user_file(TOKEN_FILE, SCOPES)
                 if creds and creds.expired and creds.refresh_token:
                     creds.refresh(Request())
-                    with open(TOKEN_FILE, "w", encoding="utf-8") as token_f:
-                        token_f.write(creds.to_json())
+                    try:
+                        with open(TOKEN_FILE, "w", encoding="utf-8") as token_f:
+                            token_f.write(creds.to_json())
+                    except Exception:
+                        pass
                 if creds and creds.valid:
                     return build("drive", "v3", credentials=creds, cache_discovery=False)
             except Exception as e:
                 print(f"[DriveService] Lỗi khi nạp token.json: {e}")
 
-        # 2. Dự phòng dùng Service Account (cho Shared Drive của Workspace)
+        # 3. Hỗ trợ đọc Service Account trực tiếp từ biến môi trường
+        sa_env = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON")
+        if sa_env:
+            try:
+                info = json.loads(sa_env)
+                credentials = service_account.Credentials.from_service_account_info(
+                    info, scopes=SCOPES
+                )
+                return build("drive", "v3", credentials=credentials, cache_discovery=False)
+            except Exception as e:
+                print(f"[DriveService] Lỗi khi nạp GOOGLE_SERVICE_ACCOUNT_JSON: {e}")
+
+        # 4. Dự phòng dùng file Service Account vật lý
         key_path = settings.GOOGLE_SERVICE_ACCOUNT_FILE
         if not os.path.isabs(key_path):
             key_path = os.path.join(BACKEND_DIR, key_path)
