@@ -67,12 +67,23 @@ def process_youtube_download(url: str, format_type: str) -> dict:
         ydl_opts = {
             **base_ydl_opts,
             "format": "bestaudio/best",
+            "writethumbnail": True,
             "postprocessors": [
                 {
                     "key": "FFmpegExtractAudio",
                     "preferredcodec": "mp3",
                     "preferredquality": "192",
-                }
+                },
+                {
+                    "key": "FFmpegThumbnailsConvertor",
+                    "format": "jpg",
+                },
+                {
+                    "key": "EmbedThumbnail",
+                },
+                {
+                    "key": "FFmpegMetadata",
+                },
             ],
         }
         target_ext = "mp3"
@@ -157,7 +168,7 @@ def download_thumbnail_file(thumbnail_url: Optional[str], video_id: str, title: 
             mime_type = "image/jpeg" if ext == "jpg" else f"image/{ext}"
             return {
                 "file_path": thumb_path,
-                "filename": f"{safe_title}_thumb.{ext}",
+                "filename": f"{safe_title}_cover.{ext}",
                 "mime_type": mime_type,
             }
     except Exception as e:
@@ -232,13 +243,17 @@ async def handle_download_request(
             drive_data["subfolder_name"] = song_subfolder
             drive_data["subfolder_id"] = subfolder_id
             if drive_thumb_res:
-                drive_data["thumbnail_file_id"] = drive_thumb_res.get("file_id")
+                cover_id = drive_thumb_res.get("file_id")
+                drive_data["cover_file_id"] = cover_id
+                drive_data["thumbnail_file_id"] = cover_id
+                drive_data["cover_url"] = f"https://lh3.googleusercontent.com/d/{cover_id}"
                 drive_data["thumbnail_web_view_link"] = drive_thumb_res.get("web_view_link")
                 drive_data["thumbnail_direct_url"] = drive_thumb_res.get("direct_stream_url")
 
             # Lưu vào MongoDB (Chỉ lưu Metadata & ID, không lưu các link Drive cứng)
             db = get_database()
             if db is not None:
+                cover_id = drive_thumb_res.get("file_id") if drive_thumb_res else None
                 song_doc = {
                     "title": result["title"],
                     "artist": result["artist"],
@@ -246,7 +261,8 @@ async def handle_download_request(
                     "duration": result["duration"],
                     "genre": "YouTube",
                     "drive_file_id": drive_res.get("file_id"),
-                    "thumbnail_drive_file_id": drive_thumb_res.get("file_id") if drive_thumb_res else None,
+                    "cover_drive_file_id": cover_id,
+                    "thumbnail_drive_file_id": cover_id,
                     "format": result["format"],
                     "file_size": result["file_size"],
                     "user_id": str(current_user["_id"]) if current_user else None,

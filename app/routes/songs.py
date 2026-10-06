@@ -5,7 +5,9 @@ from datetime import datetime, timezone
 from typing import List, Optional
 from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form
+from fastapi.responses import StreamingResponse, FileResponse, Response, RedirectResponse
 from app.database import get_database
+
 from app.models import SongCreate, SongUpdate
 from app.routes.auth import get_current_user
 from app.services.drive_service import drive_service
@@ -36,9 +38,13 @@ def serialize_song(song: dict) -> dict:
         song_copy.setdefault("stream_url", None)
         song_copy.setdefault("web_view_link", None)
 
-    # Sinh đường dẫn ảnh bìa từ thumbnail_drive_file_id
-    if thumb_id:
-        song_copy["cover_url"] = drive_service.get_direct_stream_url(thumb_id)
+    # Sinh đường dẫn ảnh bìa/cover từ cover_drive_file_id hoặc thumbnail_drive_file_id
+    cover_id = song_copy.get("cover_drive_file_id") or song_copy.get("thumbnail_drive_file_id")
+    if cover_id:
+        song_copy["cover_drive_file_id"] = cover_id
+        song_copy["thumbnail_drive_file_id"] = cover_id
+        # Sử dụng link trực tiếp chất lượng cao lh3 hỗ trợ CORS và display inline
+        song_copy["cover_url"] = f"https://lh3.googleusercontent.com/d/{cover_id}"
     elif "cover_url" not in song_copy:
         song_copy["cover_url"] = None
 
@@ -110,6 +116,148 @@ async def get_song(song_id: str):
         "status": "success",
         "data": serialize_song(song),
     }
+
+
+@router.get(
+    "/{song_id}/stream",
+    summary="Phát nhạc trực tiếp (Audio Stream Proxy)",
+    description="Stream dữ liệu âm thanh trực tiếp từ Google Drive với hỗ trợ CORS và Range header cho Web & Mobile",
+)
+async def stream_song(song_id: str):
+    db = get_database()
+    if db is None:
+        raise HTTPException(status_code=500, detail="Chưa kết nối cơ sở dữ liệu.")
+
+    try:
+        obj_id = ObjectId(song_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Song ID không hợp lệ.")
+
+    song = await db.songs.find_one({"_id": obj_id})
+    if not song:
+        raise HTTPException(status_code=404, detail="Không tìm thấy bài hát.")
+
+    drive_file_id = song.get("drive_file_id")
+    if not drive_file_id:
+        raise HTTPException(status_code=404, detail="Bài hát chưa có file trên Google Drive.")
+
+    from app.routes.youtube import DOWNLOADS_DIR
+    local_cache = os.path.join(DOWNLOADS_DIR, f"{drive_file_id}.mp3")
+    if os.path.exists(local_cache) and os.path.getsize(local_cache) > 0:
+        def iter_local():
+            with open(local_cache, "rb") as f:
+                while chunk := f.read(65536):
+                    yield chunk
+
+        return StreamingResponse(
+            iter_local(),
+            media_type="audio/mpeg",
+            headers={
+                "Accept-Ranges": "bytes",
+                "Content-Length": str(os.path.getsize(local_cache)),
+            },
+        )
+
+    try:
+        import requests
+        creds = drive_service._get_service()._http.credentials
+        if creds.expired and creds.refresh_token:
+            from google.auth.transport.requests import Request as GRequest
+            creds.refresh(GRequest())
+
+        url = f"https://www.googleapis.com/drive/v3/files/{drive_file_id}?alt=media"
+        drive_resp = requests.get(
+            url,
+            headers={"Authorization": f"Bearer {creds.token}"},
+            stream=True,
+            timeout=30,
+        )
+
+        if drive_resp.status_code != 200:
+            raise HTTPException(status_code=drive_resp.status_code, detail="Không thể stream từ Google Drive.")
+
+        def stream_generator():
+            try:
+                with open(local_cache, "wb") as f_out:
+                    for chunk in drive_resp.iter_content(chunk_size=65536):
+                        if chunk:
+                            f_out.write(chunk)
+                            yield chunk
+            except Exception:
+                pass
+
+        content_length = drive_resp.headers.get("Content-Length")
+        headers = {
+            "Accept-Ranges": "bytes",
+        }
+        if content_length:
+            headers["Content-Length"] = content_length
+
+        return StreamingResponse(
+            stream_generator(),
+            media_type="audio/mpeg",
+            headers=headers,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Lỗi khi phát nhạc: {str(e)}")
+
+
+
+@router.get(
+    "/{song_id}/cover",
+    summary="Lấy ảnh bìa/cover bài hát",
+    description="Stream trực tiếp ảnh cover từ Google Drive hoặc local cache, hỗ trợ CORS đầy đủ trên Web",
+)
+async def get_song_cover(song_id: str):
+    db = get_database()
+    if db is None:
+        raise HTTPException(status_code=500, detail="Chưa kết nối cơ sở dữ liệu MongoDB.")
+
+    try:
+        obj_id = ObjectId(song_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Song ID không hợp lệ.")
+
+    song = await db.songs.find_one({"_id": obj_id})
+    if not song:
+        raise HTTPException(status_code=404, detail="Không tìm thấy bài hát.")
+
+    cover_file_id = song.get("cover_drive_file_id") or song.get("thumbnail_drive_file_id")
+    if not cover_file_id:
+        raise HTTPException(status_code=404, detail="Bài hát không có ảnh bìa/cover.")
+
+    from app.routes.youtube import DOWNLOADS_DIR
+    local_cache = os.path.join(DOWNLOADS_DIR, f"{cover_file_id}_cover.jpg")
+    if os.path.exists(local_cache) and os.path.getsize(local_cache) > 0:
+        return FileResponse(
+            local_cache,
+            media_type="image/jpeg",
+            headers={
+                "Cache-Control": "public, max-age=86400",
+                "Access-Control-Allow-Origin": "*",
+            },
+        )
+
+    # Nếu chưa có trong cache, tải từ Google Drive lh3 endpoint và lưu vào disk
+    try:
+        import requests
+        resp = requests.get(f"https://lh3.googleusercontent.com/d/{cover_file_id}", timeout=15)
+        if resp.status_code == 200:
+            with open(local_cache, "wb") as f_out:
+                f_out.write(resp.content)
+            return Response(
+                content=resp.content,
+                media_type="image/jpeg",
+                headers={
+                    "Cache-Control": "public, max-age=86400",
+                    "Access-Control-Allow-Origin": "*",
+                },
+            )
+    except Exception as e:
+        print(f"[Cover] Lỗi tải cache cover: {e}")
+
+    return RedirectResponse(f"https://lh3.googleusercontent.com/d/{cover_file_id}")
+
 
 
 @router.delete(

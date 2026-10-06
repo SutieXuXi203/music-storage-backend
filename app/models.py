@@ -11,7 +11,8 @@ class SongBase(BaseModel):
     format: Optional[str] = Field(default="mp3", description="Định dạng âm thanh", example="mp3")
     file_size: Optional[int] = Field(default=0, description="Dung lượng file tính bằng bytes", example=2146796)
     drive_file_id: Optional[str] = Field(default=None, description="Mã định danh file nhạc trên Google Drive", example="1A2B3C4D5E6F...")
-    thumbnail_drive_file_id: Optional[str] = Field(default=None, description="Mã định danh ảnh thumbnail trên Google Drive", example="1QZ4QiGTLxJc...")
+    cover_drive_file_id: Optional[str] = Field(default=None, description="Mã định danh ảnh bìa/cover trên Google Drive", example="1QZ4QiGTLxJc...")
+    thumbnail_drive_file_id: Optional[str] = Field(default=None, description="Mã định danh ảnh thumbnail (tương thích ngược)")
     user_id: Optional[str] = Field(default=None, description="Mã định danh người dùng tải lên")
     user_username: Optional[str] = Field(default=None, description="Tên đăng nhập người dùng tải lên")
 
