@@ -1,12 +1,15 @@
 # Base Python Image
 FROM python:3.11-slim
 
+# Copy Deno binary (official recommended JS runtime for yt-dlp EJS challenge solving)
+COPY --from=denoland/deno:bin /deno /usr/local/bin/deno
+
 # Thiết lập biến môi trường
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PORT=8000
 
-# Cài đặt ffmpeg (bắt buộc cho yt-dlp trích xuất âm thanh mp3 và cover art)
+# Cài đặt ffmpeg và các gói cần thiết
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     curl \

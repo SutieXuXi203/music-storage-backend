@@ -59,13 +59,8 @@ def process_youtube_download(url: str, format_type: str) -> dict:
         "noplaylist": True,
         "quiet": True,
         "no_warnings": True,
-        "js_runtimes": {"node": {}},
+        "js_runtimes": {"deno": {}, "node": {}},
         "remote_components": {"ejs:github": {}},
-        "extractor_args": {
-            "youtube": {
-                "player_client": ["android", "ios", "mweb"],
-            }
-        },
     }
 
     # Hỗ trợ nạp cookies từ biến môi trường YOUTUBE_COOKIES hoặc file cookies.txt
@@ -109,9 +104,6 @@ def process_youtube_download(url: str, format_type: str) -> dict:
         base_ydl_opts["cookiefile"] = www_cookie
         has_cookies = True
 
-    # Giữ player_client di động kể cả khi có cookies để tránh bị YouTube chặn bot trên Cloud IP
-    # Không xóa extractor_args
-
     if format_type.lower() == "mp3":
         ydl_opts = {
             **base_ydl_opts,
@@ -146,29 +138,40 @@ def process_youtube_download(url: str, format_type: str) -> dict:
         target_ext = "mp4"
         media_type = "video/mp4"
 
-    # Thử các chiến lược tải linh hoạt nếu bị YouTube chặn bot
-    strategies = [
-        # Chiến lược 1: Dùng cấu hình hiện tại (với cookies nếu có và player_client mobile)
-        dict(ydl_opts),
-        # Chiến lược 2: Nếu thất bại do cookie lỗi/xoay, thử với client ['ios', 'android']
-        {
+    # Xây dựng các chiến lược tải linh hoạt:
+    strategies = []
+
+    if has_cookies:
+        # Chiến lược 1: Ưu tiên dùng phiên trình duyệt thật (cookies + web client + JS challenge solver)
+        strategies.append(dict(ydl_opts))
+        # Chiến lược 2: Web creator / mweb với cookies
+        strategies.append({
             **ydl_opts,
             "extractor_args": {
                 "youtube": {
-                    "player_client": ["ios", "android"],
+                    "player_client": ["web_creator", "mweb"],
                 }
             },
+        })
+
+    # Chiến lược dự phòng (không dùng cookies): Client di động cho đường truyền trực tiếp
+    no_cookie_opts = {k: v for k, v in ydl_opts.items() if k != "cookiefile"}
+    strategies.append({
+        **no_cookie_opts,
+        "extractor_args": {
+            "youtube": {
+                "player_client": ["android", "ios", "mweb"],
+            }
         },
-        # Chiến lược 3: Thử không dùng cookie nếu cookie bị Google vô hiệu hóa
-        {
-            **{k: v for k, v in ydl_opts.items() if k != "cookiefile"},
-            "extractor_args": {
-                "youtube": {
-                    "player_client": ["android", "ios", "mweb"],
-                }
-            },
+    })
+    strategies.append({
+        **no_cookie_opts,
+        "extractor_args": {
+            "youtube": {
+                "player_client": ["ios", "android"],
+            }
         },
-    ]
+    })
 
     last_error = None
     info = None
