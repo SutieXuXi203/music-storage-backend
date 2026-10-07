@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional
+from typing import List, Optional
 from pydantic import BaseModel, Field
 
 class SongBase(BaseModel):
@@ -36,4 +36,36 @@ class SongResponse(SongBase):
 
     class Config:
         populate_by_name = True
+
+
+class FolderCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100, description="Tên thư mục", example="Nhạc EDM")
+
+class FolderUpdate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100, description="Tên thư mục mới", example="Nhạc Chill")
+
+class AddSongToFolderRequest(BaseModel):
+    song_id: str = Field(..., description="Mã bài hát cần thêm/chuyển vào thư mục")
+    from_folder_id: Optional[str] = Field(default=None, description="Mã thư mục cũ nếu đây là thao tác di chuyển bài hát")
+
+class FolderResponse(BaseModel):
+    id: str
+    name: str
+    user_id: str
+    song_ids: List[str] = Field(default_factory=list)
+    song_count: int = 0
+    cover_url: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+class FolderDetailResponse(BaseModel):
+    id: str
+    name: str
+    user_id: str
+    song_ids: List[str] = Field(default_factory=list)
+    song_count: int = 0
+    songs: List[dict] = Field(default_factory=list)
+    created_at: datetime
+    updated_at: datetime
+
 

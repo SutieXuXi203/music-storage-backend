@@ -7,6 +7,7 @@ from app.database import close_mongo_connection, connect_to_mongo
 from app.routes.auth import router as auth_router
 from app.routes.youtube import router as youtube_router
 from app.routes.songs import router as songs_router
+from app.routes.folders import router as folders_router
 
 
 @asynccontextmanager
@@ -37,6 +38,7 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(youtube_router)
 app.include_router(songs_router)
+app.include_router(folders_router)
 
 
 @app.get("/", tags=["Hệ thống"], summary="Kiểm tra trạng thái hệ thống")
