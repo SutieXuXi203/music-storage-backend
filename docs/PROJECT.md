@@ -40,9 +40,10 @@ graph TD
     LocalTemp -->|Upload File| DriveService
 
     DriveService -->|API Calls / OAuth2| GDrive[☁️ Google Drive Cloud Storage]
-    Backend -->|Async CRUD / Motor| MongoDB[(🍃 MongoDB Database)]
+    Backend -->|Async CRUD / Motor| MongoDB[(🍃 MongoDB Atlas Database)]
 
-    Client -.->|Stream Audio & Cover Art| GDrive
+    Client -.->|Stream Audio Proxy / Range Request| Backend
+    Client -.->|Direct Audio Stream & LH3 Cover CDN| GDrive
 ```
 
 ### 2.1. Phân luồng dòng chảy dữ liệu (Data Flows)
@@ -59,13 +60,18 @@ graph TD
 #### B. Luồng Tải Nhạc từ YouTube (YouTube Ingestion Flow):
 1. Client gửi URL video YouTube và token xác thực JWT.
 2. FastAPI ủy quyền tác vụ tải nặng cho thread pool (`asyncio.to_thread`) để không block Event Loop:
-   - `yt-dlp` gọi `FFmpeg` để trích xuất stream âm thanh tốt nhất sang định dạng MP3 bitrate 192kbps.
+   - `yt-dlp` nạp cấu hình `js_runtimes` (node, deno) cùng cookies Netscape đã được chuẩn hóa (loại bỏ BOM UTF-8) từ `YOUTUBE_COOKIES` hoặc file `cookies.txt` để vượt tường lửa bot detection.
+   - Gọi `FFmpeg` để trích xuất stream âm thanh tốt nhất sang định dạng MP3 bitrate 192kbps.
    - Trích xuất và tải file ảnh thumbnail của bài hát.
    - Làm sạch ký tự đặc biệt trong tên bài hát (`sanitize_filename`).
 3. Tạo thư mục con mang tên bài hát bên trong thư mục Google Drive của người dùng.
 4. Đẩy song song (`asyncio.gather`) cả file `.mp3` và file `_thumb.jpg` vào thư mục con trên Drive.
-5. Lấy `direct_stream_url` và lưu toàn bộ metadata vào collection `songs` trong MongoDB.
+5. Lấy mã định danh Google Drive ID (`drive_file_id`, `cover_drive_file_id`) và lưu metadata vào collection `songs` trong MongoDB.
 6. Xóa các file tạm cục bộ trong thư mục `downloads/` để giải phóng ổ đĩa.
+
+#### C. Luồng Phát Nhạc Trực Tuyến & Tải Ảnh Bìa (Streaming & Cover Delivery):
+1. **Phát trực tiếp (Direct Stream)**: Client nhận URL stream từ Drive hoặc gọi Audio Proxy `GET /api/songs/{id}/stream`. Proxy hỗ trợ Range Header (`Accept-Ranges: bytes`) giúp client có thể tua (seek) tự do tới bất kỳ phân đoạn nào mà không phải tải toàn bộ file.
+2. **Ảnh bìa tốc độ cao (LH3 CDN)**: API tự động sinh link Google CDN `https://lh3.googleusercontent.com/d/{cover_id}` hoặc qua endpoint `GET /api/songs/{id}/cover` có gán `Cache-Control` và hỗ trợ đầy đủ CORS cho Web/Mobile.
 
 ---
 
@@ -116,8 +122,9 @@ Lưu trữ thông tin metadata bài hát và mã định danh (ID) trên Google 
 | Quyết định | Lựa chọn | Lý do & Lợi ích |
 |---|---|---|
 | **Web Framework** | FastAPI (Python) | Hỗ trợ async/await nguyên bản, tự động sinh Swagger OpenAPI docs, validation dữ liệu mạnh mẽ với Pydantic v2. |
-| **Driver Cơ sở dữ liệu** | Motor (Async MongoDB) | Tương thích hoàn hảo với async event loop của FastAPI, không gây tắc nghẽn khi truy vấn dữ liệu. |
+| **Driver Cơ sở dữ liệu** | Motor (Async MongoDB) + `certifi` | Tương thích hoàn hảo với async event loop của FastAPI. Sử dụng `certifi.where()` đảm bảo bắt tay TLS/SSL thông suốt tới MongoDB Atlas trên cả Windows và Linux. |
 | **Lưu trữ Media** | Google Drive API (OAuth 2.0) | Sử dụng tài khoản cá nhân có 15GB miễn phí. Dùng `InstalledAppFlow` kết hợp Refresh Token giúp duy trì kết nối vĩnh viễn mà không lo hết hạn. |
+| **Phân phối Media (Delivery)** | Dual Delivery (Direct LH3 + Proxy Range) | Trực tiếp qua Google LH3 CDN cho ảnh bìa; hỗ trợ Audio Proxy với Range Request (`Accept-Ranges: bytes`) giúp ứng dụng Flutter tua bài mượt mà. |
 | **Tối ưu Media** | Chỉ lưu MP3 (192kbps) + Thumbnail JPEG | Giảm 90% dung lượng so với việc lưu video MP4 đầy đủ. Tối ưu thời gian upload lên Drive và tốc độ load cho thiết bị di động. |
 | **Mã hóa Mật khẩu** | Thư viện `bcrypt` trực tiếp | Loại bỏ `passlib` để tránh lỗi xung đột 72-byte truncation và lỗi tương thích với các phiên bản `bcrypt >= 4.1.0`. |
 | **Cấu trúc File Drive** | Cây 2 cấp: `User` -> `Song` | Ngăn nắp, dễ quản lý, dễ dàng phân quyền hoặc di chuyển/backup từng bài hát hoặc từng người dùng. |
@@ -145,6 +152,9 @@ Lưu trữ thông tin metadata bài hát và mã định danh (ID) trên Google 
 - [ ] Áp dụng Background Task Worker (Celery hoặc Redis Queue) cho tác vụ tải nhạc nặng nhằm tăng khả năng chịu tải của API.
 - [ ] Hỗ trợ chuyển vùng lưu trữ dự phòng (Cloudflare R2 hoặc MinIO).
 
-### Giai đoạn 4: Ứng dụng Client
-- [ ] Xây dựng Client hoàn chỉnh bằng **Flutter** (hỗ trợ Android, iOS, Windows, macOS).
-- [ ] Tính năng phát nhạc nền (Background Audio Playback) và bộ nhớ đệm ngoại tuyến (Offline Caching).
+### Giai đoạn 4: Ứng dụng Client (Đã hoàn thành phiên bản v1.0)
+- [x] Xây dựng ứng dụng hoàn chỉnh bằng **Flutter** (`mobile_ui`): hỗ trợ Web, Android, iOS, Windows.
+- [x] Thiết kế phong cách Terminal Cyberpunk độc đáo với bộ icon Reicon đồng bộ.
+- [x] Tích hợp phát nhạc nền với `just_audio`, hiển thị sóng âm DSP 60fps và thanh điều khiển Mini Player.
+- [x] Trải nghiệm chuyển động cao cấp: vuốt kéo tương tác trực tiếp (Interactive pull-to-dismiss), buffering indicator tức thì, chuyển đổi trạng thái đăng nhập điện ảnh.
+- [ ] Tính năng tải bộ nhớ đệm ngoại tuyến (Offline Caching) cho Client di động.

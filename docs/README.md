@@ -27,11 +27,14 @@ Hệ thống Backend API chuyên biệt cho việc lưu trữ, quản lý và ph
   - Trích xuất âm thanh chất lượng cao chuẩn MP3 (192kbps) qua `yt-dlp` và `FFmpeg`.
   - Tự động tải về ảnh bìa (thumbnail) bài hát.
   - Tối ưu hóa lưu trữ: Không lưu video MP4 nặng, chỉ lưu file âm thanh nhẹ và ảnh thumbnail.
-- ☁️ **Lưu trữ đám mây Google Drive**:
+- ☁️ **Lưu trữ đám mây Google Drive & CDN Media**:
   - Tự động tổ chức file theo cấu trúc 2 cấp thư mục: `[User Folder] -> [Song Folder] -> (.mp3 + _thumb.jpg)`.
   - Tự động cấp quyền công khai (Public Read) và sinh đường dẫn phát trực tiếp (Direct Stream URL) chuẩn cho ứng dụng nghe nhạc.
-- 🎼 **Quản lý kho bài hát (Song Management)**:
-  - Hỗ trợ tìm kiếm bài hát theo tên, ca sĩ, album bằng Regular Expressions (không phân biệt hoa/thường).
+  - Tích hợp link ảnh bìa trực tiếp chất lượng cao qua Google LH3 CDN (`https://lh3.googleusercontent.com/d/{id}`) hỗ trợ hiển thị mượt mà trên cả Web và Mobile.
+- 🎼 **Quản lý & Phát trực tuyến (Streaming Engine)**:
+  - **Audio Stream Proxy (`/api/songs/{id}/stream`)**: Hỗ trợ đầy đủ CORS và HTTP Range Header (`Accept-Ranges: bytes`), cho phép ứng dụng client tua (seek) mượt mà đến mọi giây của bài hát.
+  - **Cover Art Proxy (`/api/songs/{id}/cover`)**: Tự động cache ảnh bìa cục bộ và gán `Cache-Control: public, max-age=86400` để tối ưu băng thông.
+  - Tìm kiếm bài hát thông minh theo tên, ca sĩ, album bằng Regular Expressions (không phân biệt hoa/thường).
   - Phân trang (Pagination) tối ưu hóa hiệu năng.
   - Upload file nhạc thủ công từ thiết bị lên Google Drive.
   - Xóa bài hát: Tự động dọn dẹp cả dữ liệu trong MongoDB lẫn các file trên Google Drive (có kiểm tra quyền sở hữu).
@@ -148,13 +151,19 @@ HOST=0.0.0.0
 PORT=8000
 DEBUG=True
 
-# Cơ sở dữ liệu MongoDB
+# Cơ sở dữ liệu MongoDB (Local hoặc MongoDB Atlas Cloud)
+# - Chạy local: mongodb://localhost:27017
+# - Chạy Atlas: mongodb+srv://<username>:<password>@cluster0.xxx.mongodb.net/?retryWrites=true&w=majority
 MONGODB_URL=mongodb://localhost:27017
 DATABASE_NAME=music_app_db
 
 # Google Drive API
 # (ID thư mục gốc trên Drive nếu muốn chỉ định, để trống sẽ tự tìm/tạo 'Music Storage')
 GOOGLE_DRIVE_FOLDER_ID=
+
+# YouTube Cookies (Tuỳ chọn: giải quyết chặn bot YouTube khi tải nhạc)
+# Chuỗi cookie định dạng Netscape hoặc để trống nếu dùng file downloads/cookies.txt
+YOUTUBE_COOKIES=
 
 # Bảo mật JWT
 # Sinh chuỗi bí mật bằng lệnh: python -c "import secrets; print(secrets.token_hex(32))"
@@ -193,11 +202,13 @@ REFRESH_TOKEN_EXPIRE_DAYS=30
 }
 ```
 
-### 3. Quản lý bài hát (`/api/songs`)
+### 3. Quản lý bài hát & Streaming (`/api/songs`)
 | Phương thức | Đường dẫn | Mô tả | Yêu cầu xác thực |
 |---|---|---|:---:|
 | `GET` | `/api/songs` | Lấy danh sách bài hát (hỗ trợ `search`, `user_id`, `skip`, `limit`) | ❌ |
 | `GET` | `/api/songs/{song_id}` | Xem chi tiết bài hát theo ID | ❌ |
+| `GET` | `/api/songs/{song_id}/stream` | Phát trực tiếp file âm thanh (Audio Stream Proxy với Range Header & caching) | ❌ |
+| `GET` | `/api/songs/{song_id}/cover` | Lấy ảnh bìa/cover bài hát (hỗ trợ caching và CORS hoàn chỉnh) | ❌ |
 | `POST` | `/api/songs/upload` | Upload trực tiếp file nhạc từ máy lên Google Drive & MongoDB | ✅ |
 | `DELETE` | `/api/songs/{song_id}` | Xóa bài hát khỏi DB và Google Drive (chỉ tác giả mới xóa được) | ✅ |
 
@@ -211,8 +222,10 @@ REFRESH_TOKEN_EXPIRE_DAYS=30
    - `token.json`
    - `service_account.json`
    - Thư mục môi trường ảo `venv/`
-2. **Cập nhật yt-dlp thường xuyên**: YouTube thường xuyên thay đổi cơ chế trích xuất, hãy nâng cấp thư viện khi gặp lỗi tải:
+2. **Cập nhật yt-dlp & Vượt chặn Bot YouTube**: YouTube thường xuyên thay đổi cơ chế trích xuất, hãy nâng cấp thư viện khi gặp lỗi tải:
    ```powershell
    pip install --upgrade yt-dlp
    ```
-3. **CORS Middleware**: Hệ thống đã bật sẵn `CORSMiddleware` với `allow_origins=["*"]`, thuận tiện kết nối tới ứng dụng Flutter / Web trong môi trường phát triển.
+   Nếu YouTube yêu cầu xác minh bot (`Sign in to confirm you're not a bot`), bạn có thể trích xuất cookie từ trình duyệt bằng extension (ví dụ *Get cookies.txt LOCALLY*) và lưu vào `backend/downloads/cookies.txt` hoặc gán vào biến môi trường `YOUTUBE_COOKIES`.
+3. **Kết nối MongoDB Atlas**: Hệ thống sử dụng gói `certifi` để tự động xác thực chứng chỉ SSL/TLS gốc (`tlsCAFile=certifi.where()`). Khi sử dụng MongoDB Atlas, hãy đảm bảo đã thêm IP hiện tại hoặc IP `0.0.0.0/0` vào danh sách **Network Access** trên MongoDB Atlas console.
+4. **CORS Middleware**: Hệ thống đã bật sẵn `CORSMiddleware` với `allow_origins=["*"]`, thuận tiện kết nối tới ứng dụng Flutter / Web trong môi trường phát triển.

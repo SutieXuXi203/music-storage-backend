@@ -86,18 +86,27 @@ backend/
   File `token.json` sẽ tự động được làm mới và lưu lại trên đĩa.
 
 ### 🔴 Cạm bẫy 4: YouTube Bot Detection của `yt-dlp`
-- **Vấn đề**: YouTube chặn IP hoặc yêu cầu xác minh bot khi gọi `yt-dlp` mà không cấu hình tham số.
-- **Quy chuẩn**: Giữ nguyên các tùy chọn cấu hình `base_ydl_opts` trong `youtube.py`:
-  ```python
-  base_ydl_opts = {
-      "outtmpl": os.path.join(DOWNLOADS_DIR, "%(id)s.%(ext)s"),
-      "noplaylist": True,
-      "quiet": True,
-      "no_warnings": True,
-      "js_runtimes": {"node": {}},
-      "remote_components": {"ejs:github": {}},
-  }
-  ```
+- **Vấn đề**: YouTube liên tục siết chặt bot detection, yêu cầu xác minh bot hoặc chặn IP server (`Sign in to confirm you're not a bot`).
+- **Quy chuẩn bắt buộc**:
+  - Luôn khai báo `js_runtimes: {"deno": {}, "node": {}}` và `remote_components: {"ejs:github": {}}`.
+  - Hỗ trợ nạp cookie Netscape từ file `backend/downloads/cookies.txt` hoặc biến môi trường `YOUTUBE_COOKIES`.
+  - **Lưu ý định dạng**: File cookies xuất từ extension thường bị dính ký tự UTF-8 BOM (`\ufeff`) khiến `yt-dlp` không nhận diện được. Bắt buộc phải xử lý `.replace("\ufeff", "")` và đảm bảo dòng đầu luôn là `# Netscape HTTP Cookie File`.
+
+### 🔴 Cạm bẫy 5: MongoDB Atlas SSL/TLS Handshake trên Windows & Linux
+- **Vấn đề**: Khi kết nối chuỗi `mongodb+srv://` tới MongoDB Atlas, môi trường Windows có thể gặp lỗi `[SSL: TLSV1_ALERT_INTERNAL_ERROR] tlsv1 alert internal error` do thiếu chứng chỉ CA gốc của hệ điều hành.
+- **Quy chuẩn bắt buộc**:
+  - Luôn import `certifi` và truyền tham số `tlsCAFile=certifi.where()` vào `AsyncIOMotorClient`:
+    ```python
+    import certifi
+    client = AsyncIOMotorClient(settings.MONGODB_URL, tlsCAFile=certifi.where(), serverSelectionTimeoutMS=5000)
+    ```
+  - Khi gặp lỗi handshake hoặc timeout, nhắc nhở người dùng kiểm tra mục **Network Access** trên MongoDB Atlas console và thêm dải IP `0.0.0.0/0` (Allow Access from Anywhere).
+
+### 🔴 Cạm bẫy 6: CORS & HTTP Byte-Range Header cho Web & Mobile Audio Player
+- **Vấn đề**: Google Drive direct download URL đôi khi không hỗ trợ đầy đủ `Accept-Ranges: bytes` hoặc bị chặn CORS trên trình duyệt Web, khiến các package nghe nhạc (như `just_audio` trên Flutter Web) không thể tua nhạc (seek) hoặc không load được ảnh cover.
+- **Quy chuẩn bắt buộc**:
+  - Đối với ảnh bìa: Luôn sinh link `https://lh3.googleusercontent.com/d/{cover_id}` hoặc qua endpoint `GET /api/songs/{id}/cover` (được gắn header `Access-Control-Allow-Origin: *` và cache 24h).
+  - Đối với âm thanh: Endpoint proxy `GET /api/songs/{id}/stream` thực hiện stream từng chunk và khai báo header `Accept-Ranges: bytes` cùng `Content-Length` chính xác để client có thể tua mượt mà tới từng giây của bài hát.
 
 ---
 
