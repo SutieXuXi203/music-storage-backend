@@ -63,7 +63,7 @@ def process_youtube_download(url: str, format_type: str) -> dict:
         "remote_components": {"ejs:github": {}},
     }
 
-    # Hỗ trợ nạp cookies từ biến môi trường YOUTUBE_COOKIES hoặc file cookies.txt
+
     cookie_file = os.path.join(DOWNLOADS_DIR, "cookies.txt")
     raw_cookies = os.getenv("YOUTUBE_COOKIES")
     has_cookies = False
