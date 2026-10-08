@@ -4,8 +4,10 @@ import tempfile
 from datetime import datetime, timezone
 from typing import List, Optional
 from bson import ObjectId
-from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form, Request
 from fastapi.responses import StreamingResponse, FileResponse, Response, RedirectResponse
+from jose import jwt, JWTError
+from app.config import settings
 from app.database import get_database
 
 from app.models import SongCreate, SongUpdate
@@ -55,28 +57,30 @@ def serialize_song(song: dict) -> dict:
 @router.get(
     "",
     summary="Lấy danh sách bài hát",
-    description="Lấy danh sách bài hát có hỗ trợ tìm kiếm theo tiêu đề/nghệ sĩ/album, lọc theo người tải và phân trang",
+    description="Lấy danh sách bài hát thuộc kho lưu trữ riêng của người dùng đang đăng nhập có hỗ trợ tìm kiếm và phân trang",
     response_description="Danh sách bài hát",
 )
 async def list_songs(
     limit: int = Query(50, ge=1, le=100, description="Số lượng bài hát tối đa trên mỗi trang"),
     skip: int = Query(0, ge=0, description="Bỏ qua N bài hát (phân trang)"),
     search: Optional[str] = Query(None, description="Tìm kiếm theo tiêu đề, ca sĩ hoặc album"),
-    user_id: Optional[str] = Query(None, description="Lọc danh sách bài hát theo ID người tải lên"),
+    current_user: dict = Depends(get_current_user),
 ):
     db = get_database()
     if db is None:
         raise HTTPException(status_code=500, detail="Chưa kết nối cơ sở dữ liệu MongoDB.")
 
-    query = {}
+    user_id_str = str(current_user["_id"])
+    query = {"user_id": user_id_str}
     if search:
-        query["$or"] = [
-            {"title": {"$regex": search, "$options": "i"}},
-            {"artist": {"$regex": search, "$options": "i"}},
-            {"album": {"$regex": search, "$options": "i"}},
-        ]
-    if user_id:
-        query["user_id"] = user_id
+        query = {
+            "user_id": user_id_str,
+            "$or": [
+                {"title": {"$regex": search, "$options": "i"}},
+                {"artist": {"$regex": search, "$options": "i"}},
+                {"album": {"$regex": search, "$options": "i"}},
+            ],
+        }
 
     cursor = db.songs.find(query).sort("created_at", -1).skip(skip).limit(limit)
     songs = []
@@ -98,7 +102,10 @@ async def list_songs(
     summary="Xem chi tiết bài hát",
     description="Lấy thông tin chi tiết một bài hát bằng mã định danh (ID)",
 )
-async def get_song(song_id: str):
+async def get_song(
+    song_id: str,
+    current_user: dict = Depends(get_current_user),
+):
     db = get_database()
     if db is None:
         raise HTTPException(status_code=500, detail="Chưa kết nối cơ sở dữ liệu MongoDB.")
@@ -112,6 +119,9 @@ async def get_song(song_id: str):
     if not song:
         raise HTTPException(status_code=404, detail="Không tìm thấy bài hát.")
 
+    if song.get("user_id") and str(song.get("user_id")) != str(current_user["_id"]):
+        raise HTTPException(status_code=403, detail="Bạn không có quyền truy cập bài hát này.")
+
     return {
         "status": "success",
         "data": serialize_song(song),
@@ -123,7 +133,7 @@ async def get_song(song_id: str):
     summary="Phát nhạc trực tiếp (Audio Stream Proxy)",
     description="Stream dữ liệu âm thanh trực tiếp từ Google Drive với hỗ trợ CORS và Range header cho Web & Mobile",
 )
-async def stream_song(song_id: str):
+async def stream_song(song_id: str, request: Request):
     db = get_database()
     if db is None:
         raise HTTPException(status_code=500, detail="Chưa kết nối cơ sở dữ liệu.")
@@ -136,6 +146,23 @@ async def stream_song(song_id: str):
     song = await db.songs.find_one({"_id": obj_id})
     if not song:
         raise HTTPException(status_code=404, detail="Không tìm thấy bài hát.")
+
+    # Bảo mật: Kiểm tra quyền sở hữu nếu có token xác thực
+    token = None
+    auth_header = request.headers.get("Authorization")
+    if auth_header and auth_header.startswith("Bearer "):
+        token = auth_header.split(" ")[1]
+    elif "token" in request.query_params:
+        token = request.query_params["token"]
+
+    if token:
+        try:
+            payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
+            user_id = payload.get("sub")
+            if song.get("user_id") and str(song.get("user_id")) != str(user_id):
+                raise HTTPException(status_code=403, detail="Bạn không có quyền phát bài hát của người khác.")
+        except JWTError:
+            pass
 
     drive_file_id = song.get("drive_file_id")
     if not drive_file_id:
@@ -347,7 +374,7 @@ async def upload_song_file(
         subfolder_id = await drive_service.get_or_create_folder(
             folder_name=song_subfolder,
             parent_id=user_parent_id,
-            make_public=True,
+            make_public=False,
         )
 
         # 3. Upload lên Google Drive vào đúng subfolder_id

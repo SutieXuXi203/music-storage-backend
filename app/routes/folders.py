@@ -139,10 +139,13 @@ async def get_folder(
     song_ids = folder.get("song_ids", [])
     valid_obj_ids = [ObjectId(sid) for sid in song_ids if ObjectId.is_valid(sid)]
 
-    # Lấy danh sách các bài hát trong MongoDB
+    # Lấy danh sách các bài hát trong MongoDB thuộc quyền sở hữu của người dùng
     songs_map = {}
     if valid_obj_ids:
-        cursor = db.songs.find({"_id": {"$in": valid_obj_ids}})
+        cursor = db.songs.find({
+            "_id": {"$in": valid_obj_ids},
+            "user_id": str(current_user["_id"]),
+        })
         async for s_doc in cursor:
             s_dict = serialize_song(s_doc)
             songs_map[s_dict["id"]] = s_dict
@@ -271,6 +274,9 @@ async def add_or_move_song_to_folder(
     song = await db.songs.find_one({"_id": ObjectId(song_id)})
     if not song:
         raise HTTPException(status_code=404, detail="Không tìm thấy bài hát.")
+
+    if song.get("user_id") and str(song.get("user_id")) != str(current_user["_id"]):
+        raise HTTPException(status_code=403, detail="Bạn không có quyền thêm bài hát của người khác vào thư mục.")
 
     now = datetime.now(timezone.utc)
 

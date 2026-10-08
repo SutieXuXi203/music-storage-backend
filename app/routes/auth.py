@@ -232,7 +232,7 @@ async def get_or_create_user_drive_folder(user: dict) -> str:
     folder_id = await drive_service.get_or_create_folder(
         folder_name=folder_name,
         parent_id=settings.GOOGLE_DRIVE_FOLDER_ID,
-        make_public=True,
+        make_public=False,
     )
     db = get_database()
     if db is not None:
@@ -275,7 +275,7 @@ async def register(req: RegisterRequest):
         drive_folder_id = await drive_service.get_or_create_folder(
             folder_name=user_folder_name,
             parent_id=settings.GOOGLE_DRIVE_FOLDER_ID,
-            make_public=True,
+            make_public=False,
         )
     except Exception as e:
         print(f"[Auth Register] Cảnh báo tạo thư mục Drive cho user {req.username}: {e}")

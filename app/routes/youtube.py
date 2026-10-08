@@ -302,7 +302,7 @@ async def handle_download_request(
             subfolder_id = await drive_service.get_or_create_folder(
                 folder_name=song_subfolder,
                 parent_id=user_parent_id,
-                make_public=True,
+                make_public=False,
             )
 
             # Tải ảnh thumbnail về máy trong thread riêng để upload cùng bài hát lên Drive
