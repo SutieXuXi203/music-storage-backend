@@ -10,6 +10,7 @@ from pydantic import BaseModel, EmailStr, Field, field_validator, model_validato
 
 from app.config import settings
 from app.database import get_database
+from bson import ObjectId
 
 router = APIRouter(prefix="/api/auth", tags=["Xác thực tài khoản"])
 
@@ -221,34 +222,67 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
 
 
 async def get_or_create_user_drive_folder(user: dict) -> str:
-    """Lấy hoặc tự động tạo thư mục cha trên Google Drive theo full_name cho người dùng"""
+    """Lấy hoặc tự động tạo thư mục cha trên Google Drive theo full_name cho người dùng và đồng bộ vào collection folders"""
+    user_id_str = str(user["_id"])
     folder_id = user.get("drive_folder_id")
-    if folder_id:
-        return folder_id
-
     folder_name = (user.get("full_name") or user.get("username") or "User").strip()
     from app.services.drive_service import drive_service
 
-    folder_id = await drive_service.get_or_create_folder(
-        folder_name=folder_name,
-        parent_id=settings.GOOGLE_DRIVE_FOLDER_ID,
-        make_public=False,
-    )
+    if not folder_id:
+        folder_id = await drive_service.get_or_create_folder(
+            folder_name=folder_name,
+            parent_id=settings.GOOGLE_DRIVE_FOLDER_ID,
+            make_public=False,
+            user_id=user_id_str,
+        )
+        db = get_database()
+        if db is not None:
+            await db.users.update_one(
+                {"_id": user["_id"]},
+                {"$set": {"drive_folder_id": folder_id, "drive_folder_name": folder_name}},
+            )
+            user["drive_folder_id"] = folder_id
+            user["drive_folder_name"] = folder_name
+
+    # Đảm bảo collection folders luôn có bản ghi tương ứng cho user
     db = get_database()
     if db is not None:
-        await db.users.update_one(
-            {"_id": user["_id"]},
-            {"$set": {"drive_folder_id": folder_id, "drive_folder_name": folder_name}},
-        )
-        user["drive_folder_id"] = folder_id
-        user["drive_folder_name"] = folder_name
+        existing_folder = await db.folders.find_one({
+            "$or": [
+                {"user_id": user_id_str, "drive_folder_id": folder_id},
+                {"user_id": user_id_str, "is_default": True},
+            ]
+        })
+        if not existing_folder:
+            # Lấy tất cả bài hát hiện có của user này để đưa vào song_ids nếu có
+            songs_cursor = db.songs.find({"user_id": user_id_str})
+            user_song_ids = [str(s["_id"]) async for s in songs_cursor]
+
+            now = datetime.now(timezone.utc)
+            folder_doc = {
+                "name": folder_name,
+                "user_id": user_id_str,
+                "user_username": user.get("username"),
+                "drive_folder_id": folder_id,
+                "is_default": True,
+                "song_ids": user_song_ids,
+                "created_at": now,
+                "updated_at": now,
+            }
+            res = await db.folders.insert_one(folder_doc)
+            await db.users.update_one(
+                {"_id": user["_id"]},
+                {"$set": {"default_folder_id": str(res.inserted_id)}},
+            )
+            user["default_folder_id"] = str(res.inserted_id)
+
     return folder_id
 
 
 @router.post(
     "/register",
     summary="Đăng ký tài khoản mới",
-    description="Đăng ký tài khoản người dùng mới và tự động tạo thư mục cha trên Google Drive theo full_name",
+    description="Đăng ký tài khoản người dùng mới, tự động tạo thư mục trên Google Drive và bản ghi thư mục trong collection folders",
     status_code=status.HTTP_201_CREATED,
 )
 async def register(req: RegisterRequest):
@@ -267,6 +301,10 @@ async def register(req: RegisterRequest):
         field = "Tên đăng nhập" if existing.get("username") == req.username else "Email"
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"{field} đã được sử dụng")
 
+    # Tạo ObjectId cho user trước để có ID gán vào Drive folder và collection folders
+    user_id_obj = ObjectId()
+    user_id_str = str(user_id_obj)
+
     # Tạo thư mục cha trên Google Drive theo full_name của người dùng (fallback: username)
     user_folder_name = (req.full_name or req.username).strip()
     drive_folder_id = None
@@ -276,30 +314,52 @@ async def register(req: RegisterRequest):
             folder_name=user_folder_name,
             parent_id=settings.GOOGLE_DRIVE_FOLDER_ID,
             make_public=False,
+            user_id=user_id_str,
         )
     except Exception as e:
         print(f"[Auth Register] Cảnh báo tạo thư mục Drive cho user {req.username}: {e}")
 
+    now = datetime.now(timezone.utc)
+
+    # 1. Tạo folder trong collection folders với tên đầy đủ của user và gán user_id
+    folder_doc = {
+        "name": user_folder_name,
+        "user_id": user_id_str,
+        "user_username": req.username,
+        "drive_folder_id": drive_folder_id,
+        "is_default": True,
+        "song_ids": [],
+        "created_at": now,
+        "updated_at": now,
+    }
+    folder_result = await db.folders.insert_one(folder_doc)
+    default_folder_id = str(folder_result.inserted_id)
+
+    # 2. Tạo bản ghi trong collection users
     user_doc = {
+        "_id": user_id_obj,
         "username": req.username,
         "email": user_email,
         "hashed_password": hash_password(req.password),
         "full_name": req.full_name,
         "drive_folder_id": drive_folder_id,
         "drive_folder_name": user_folder_name,
+        "default_folder_id": default_folder_id,
         "is_active": True,
-        "created_at": datetime.now(timezone.utc),
-        "updated_at": datetime.now(timezone.utc),
+        "created_at": now,
+        "updated_at": now,
     }
-    result = await db.users.insert_one(user_doc)
+    await db.users.insert_one(user_doc)
+
     return {
         "status": "success",
         "message": "Đăng ký thành công",
-        "user_id": str(result.inserted_id),
+        "user_id": user_id_str,
         "username": req.username,
         "email": req.email,
         "drive_folder_id": drive_folder_id,
         "drive_folder_name": user_folder_name,
+        "default_folder_id": default_folder_id,
     }
 
 
@@ -357,6 +417,12 @@ async def login(
     user_id = str(user["_id"])
     access_token = create_access_token(user_id, user["username"])
     refresh_token = create_refresh_token(user_id)
+
+    # Đảm bảo thư mục Drive và bản ghi collection folders luôn tồn tại cho tài khoản
+    try:
+        await get_or_create_user_drive_folder(user)
+    except Exception as e:
+        print(f"[Auth Login] Cảnh báo đồng bộ thư mục người dùng {username}: {e}")
 
     SET_LOGIN = {"$set": {"refresh_token": refresh_token, "last_login": datetime.now(timezone.utc)}}
     await db.users.update_one(

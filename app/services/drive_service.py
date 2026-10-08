@@ -83,6 +83,7 @@ class DriveService:
         folder_name: str,
         parent_id: Optional[str] = None,
         make_public: bool = True,
+        user_id: Optional[str] = None,
     ) -> str:
         """Tìm kiếm hoặc tạo mới một thư mục con trên Google Drive ứng với tên chỉ định"""
         service = self._get_service()
@@ -111,13 +112,29 @@ class DriveService:
         )
         files = results.get("files", [])
         if files:
-            return files[0]["id"]
+            existing_id = files[0]["id"]
+            if user_id:
+                try:
+                    service.files().update(
+                        fileId=existing_id,
+                        body={
+                            "description": f"User ID: {user_id}",
+                            "appProperties": {"user_id": str(user_id)},
+                        },
+                        supportsAllDrives=True,
+                    ).execute()
+                except Exception as e:
+                    print(f"[DriveService] Cập nhật metadata cho folder {existing_id}: {e}")
+            return existing_id
 
         # Nếu chưa có thì tạo mới thư mục con
         folder_metadata = {
             "name": folder_name,
             "mimeType": "application/vnd.google-apps.folder",
         }
+        if user_id:
+            folder_metadata["description"] = f"User ID: {user_id}"
+            folder_metadata["appProperties"] = {"user_id": str(user_id)}
         if parent:
             folder_metadata["parents"] = [parent]
 
@@ -151,6 +168,7 @@ class DriveService:
         folder_name: str,
         parent_id: Optional[str] = None,
         make_public: bool = True,
+        user_id: Optional[str] = None,
     ) -> str:
         """Tìm hoặc tạo thư mục con bất đồng bộ"""
         return await asyncio.to_thread(
@@ -158,6 +176,7 @@ class DriveService:
             folder_name,
             parent_id,
             make_public,
+            user_id,
         )
 
     def upload_file_sync(

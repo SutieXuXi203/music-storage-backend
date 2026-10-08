@@ -52,6 +52,9 @@ class FolderResponse(BaseModel):
     id: str
     name: str
     user_id: str
+    user_username: Optional[str] = None
+    drive_folder_id: Optional[str] = None
+    is_default: bool = False
     song_ids: List[str] = Field(default_factory=list)
     song_count: int = 0
     cover_url: Optional[str] = None
@@ -62,6 +65,9 @@ class FolderDetailResponse(BaseModel):
     id: str
     name: str
     user_id: str
+    user_username: Optional[str] = None
+    drive_folder_id: Optional[str] = None
+    is_default: bool = False
     song_ids: List[str] = Field(default_factory=list)
     song_count: int = 0
     songs: List[dict] = Field(default_factory=list)

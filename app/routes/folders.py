@@ -39,6 +39,9 @@ def serialize_folder_summary(doc: dict, cover_url: Optional[str] = None) -> dict
         "id": str(doc["_id"]),
         "name": doc.get("name", ""),
         "user_id": doc.get("user_id", ""),
+        "user_username": doc.get("user_username", ""),
+        "drive_folder_id": doc.get("drive_folder_id"),
+        "is_default": doc.get("is_default", False),
         "song_ids": song_ids,
         "song_count": len(song_ids),
         "cover_url": cover_url,
@@ -57,8 +60,15 @@ async def list_folders(current_user: dict = Depends(get_current_user)):
     if db is None:
         raise HTTPException(status_code=500, detail="Chưa kết nối cơ sở dữ liệu MongoDB.")
 
+    # Đảm bảo người dùng luôn có thư mục gốc tương ứng với Google Drive
+    from app.routes.auth import get_or_create_user_drive_folder
+    try:
+        await get_or_create_user_drive_folder(current_user)
+    except Exception as e:
+        print(f"[List Folders] Cảnh báo đồng bộ thư mục người dùng: {e}")
+
     user_id_str = str(current_user["_id"])
-    cursor = db.folders.find({"user_id": user_id_str}).sort("created_at", -1)
+    cursor = db.folders.find({"user_id": user_id_str}).sort([("is_default", -1), ("created_at", -1)])
     folders = []
 
     async for doc in cursor:
@@ -234,6 +244,9 @@ async def delete_folder(
 
     if str(folder.get("user_id")) != str(current_user["_id"]):
         raise HTTPException(status_code=403, detail="Bạn không có quyền xóa thư mục này.")
+
+    if folder.get("is_default"):
+        raise HTTPException(status_code=400, detail="Không thể xóa thư mục chính của tài khoản.")
 
     await db.folders.delete_one({"_id": ObjectId(folder_id)})
 

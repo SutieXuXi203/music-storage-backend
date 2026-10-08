@@ -368,6 +368,14 @@ async def handle_download_request(
                 }
                 res_db = await db.songs.insert_one(song_doc)
                 song_id = str(res_db.inserted_id)
+                if current_user:
+                    await db.folders.update_one(
+                        {"user_id": str(current_user["_id"]), "is_default": True},
+                        {
+                            "$addToSet": {"song_ids": song_id},
+                            "$set": {"updated_at": datetime.now(timezone.utc)},
+                        },
+                    )
         except Exception as drive_err:
             print(f"[YouTube Route] Lỗi upload Drive: {drive_err}")
             drive_data = {"error": str(drive_err)}
