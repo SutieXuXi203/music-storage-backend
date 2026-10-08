@@ -18,6 +18,7 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 # Regex validation patterns
 USERNAME_RE = re.compile(r"^[a-zA-Z0-9_]+$")
 PASSWORD_RE = re.compile(r"^(?=.*[A-Za-z])(?=.*[0-9]).{6,}$")
+EMAIL_RE = re.compile(r"^[\w\.\+\-]+@[a-zA-Z0-9_\.\-]+$")
 
 
 class RegisterRequest(BaseModel):
@@ -28,9 +29,9 @@ class RegisterRequest(BaseModel):
         description="Tên đăng nhập (chỉ gồm chữ cái, chữ số và dấu gạch dưới)",
         example="nguyenvana",
     )
-    email: EmailStr = Field(
-        ...,
-        description="Địa chỉ email hợp lệ",
+    email: Optional[str] = Field(
+        default=None,
+        description="Địa chỉ email hợp lệ hoặc bỏ trống",
         example="user@example.com",
     )
     password: str = Field(
@@ -54,6 +55,17 @@ class RegisterRequest(BaseModel):
         if not USERNAME_RE.match(v):
             raise ValueError("Tên đăng nhập chỉ được chứa chữ cái (a-z, A-Z), chữ số (0-9) và dấu gạch dưới (_)")
         return v.lower()
+
+    @field_validator("email")
+    @classmethod
+    def email_format_validator(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None:
+            v = v.strip().lower()
+            if not v:
+                return None
+            if not EMAIL_RE.match(v):
+                raise ValueError("Địa chỉ email không đúng định dạng")
+        return v
 
     @field_validator("password")
     @classmethod
@@ -244,9 +256,13 @@ async def register(req: RegisterRequest):
     if db is None:
         raise HTTPException(status_code=503, detail="Cơ sở dữ liệu không khả dụng")
 
-    existing = await db.users.find_one(
-        {"$or": [{"username": req.username}, {"email": req.email}]}
-    )
+    user_email = req.email or f"{req.username}@drive.local"
+
+    existing_filter = [{"username": req.username}]
+    if req.email and not req.email.endswith("@drive.local"):
+        existing_filter.append({"email": req.email})
+
+    existing = await db.users.find_one({"$or": existing_filter})
     if existing:
         field = "Tên đăng nhập" if existing.get("username") == req.username else "Email"
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"{field} đã được sử dụng")
@@ -266,7 +282,7 @@ async def register(req: RegisterRequest):
 
     user_doc = {
         "username": req.username,
-        "email": req.email,
+        "email": user_email,
         "hashed_password": hash_password(req.password),
         "full_name": req.full_name,
         "drive_folder_id": drive_folder_id,

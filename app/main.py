@@ -25,6 +25,10 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+from fastapi import Request
+
 # Cấu hình CORS để ứng dụng Flutter (Mobile & Desktop) có thể gọi API không bị chặn
 app.add_middleware(
     CORSMiddleware,
@@ -33,6 +37,15 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    errors = exc.errors()
+    print(f"[Validation Error 422] {request.method} {request.url.path} - Chi tiết lỗi: {errors}")
+    return JSONResponse(
+        status_code=422,
+        content={"detail": errors},
+    )
 
 # Đăng ký routes
 app.include_router(auth_router)
