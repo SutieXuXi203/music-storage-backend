@@ -328,13 +328,12 @@ async def delete_song(
 
     # 2. Xoá trong MongoDB
     await db.songs.delete_one({"_id": obj_id})
-    await db.folders.update_many(
-        {"user_id": str(current_user["_id"])},
-        {
-            "$pull": {"song_ids": str(obj_id)},
-            "$set": {"updated_at": datetime.now(timezone.utc)},
-        },
-    )
+    update_pull = {
+        "$pull": {"song_ids": str(obj_id)},
+        "$set": {"updated_at": datetime.now(timezone.utc)},
+    }
+    await db.playlists.update_many({"user_id": str(current_user["_id"])}, update_pull)
+    await db.folders.update_many({"user_id": str(current_user["_id"])}, update_pull)
 
     return {
         "status": "success",
@@ -412,15 +411,14 @@ async def upload_song_file(
         result = await db.songs.insert_one(song_doc)
         song_doc["_id"] = result.inserted_id
 
-        # Tự động gán bài hát vào thư mục mặc định của người dùng trong collection folders
+        # Tự động gán bài hát vào playlist/thư mục mặc định của người dùng
         song_id_str = str(result.inserted_id)
-        await db.folders.update_one(
-            {"user_id": str(current_user["_id"]), "is_default": True},
-            {
-                "$addToSet": {"song_ids": song_id_str},
-                "$set": {"updated_at": datetime.now(timezone.utc)},
-            },
-        )
+        default_update = {
+            "$addToSet": {"song_ids": song_id_str},
+            "$set": {"updated_at": datetime.now(timezone.utc)},
+        }
+        await db.playlists.update_one({"user_id": str(current_user["_id"]), "is_default": True}, default_update)
+        await db.folders.update_one({"user_id": str(current_user["_id"]), "is_default": True}, default_update)
 
         return {
             "status": "success",

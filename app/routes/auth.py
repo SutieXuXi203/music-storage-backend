@@ -244,10 +244,15 @@ async def get_or_create_user_drive_folder(user: dict) -> str:
             user["drive_folder_id"] = folder_id
             user["drive_folder_name"] = folder_name
 
-    # Đảm bảo collection folders luôn có bản ghi tương ứng cho user
+    # Đảm bảo collection folders và playlists luôn có bản ghi tương ứng cho user
     db = get_database()
     if db is not None:
-        existing_folder = await db.folders.find_one({
+        existing_folder = await db.playlists.find_one({
+            "$or": [
+                {"user_id": user_id_str, "drive_folder_id": folder_id},
+                {"user_id": user_id_str, "is_default": True},
+            ]
+        }) or await db.folders.find_one({
             "$or": [
                 {"user_id": user_id_str, "drive_folder_id": folder_id},
                 {"user_id": user_id_str, "is_default": True},
@@ -269,12 +274,23 @@ async def get_or_create_user_drive_folder(user: dict) -> str:
                 "created_at": now,
                 "updated_at": now,
             }
-            res = await db.folders.insert_one(folder_doc)
+            res = await db.playlists.insert_one(dict(folder_doc))
+            folder_doc["_id"] = res.inserted_id
+            try:
+                await db.folders.insert_one(dict(folder_doc))
+            except Exception:
+                pass
             await db.users.update_one(
                 {"_id": user["_id"]},
                 {"$set": {"default_folder_id": str(res.inserted_id)}},
             )
             user["default_folder_id"] = str(res.inserted_id)
+        else:
+            # Đảm bảo có mặt trong playlists
+            p_exists = await db.playlists.find_one({"_id": existing_folder["_id"]})
+            if not p_exists:
+                await db.playlists.insert_one(dict(existing_folder))
+
 
     return folder_id
 
@@ -321,7 +337,7 @@ async def register(req: RegisterRequest):
 
     now = datetime.now(timezone.utc)
 
-    # 1. Tạo folder trong collection folders với tên đầy đủ của user và gán user_id
+    # 1. Tạo playlist/folder trong database với tên đầy đủ của user và gán user_id
     folder_doc = {
         "name": user_folder_name,
         "user_id": user_id_str,
@@ -332,8 +348,13 @@ async def register(req: RegisterRequest):
         "created_at": now,
         "updated_at": now,
     }
-    folder_result = await db.folders.insert_one(folder_doc)
-    default_folder_id = str(folder_result.inserted_id)
+    p_result = await db.playlists.insert_one(dict(folder_doc))
+    folder_doc["_id"] = p_result.inserted_id
+    try:
+        await db.folders.insert_one(dict(folder_doc))
+    except Exception:
+        pass
+    default_folder_id = str(p_result.inserted_id)
 
     # 2. Tạo bản ghi trong collection users
     user_doc = {

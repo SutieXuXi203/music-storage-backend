@@ -38,17 +38,18 @@ class SongResponse(SongBase):
         populate_by_name = True
 
 
-class FolderCreate(BaseModel):
-    name: str = Field(..., min_length=1, max_length=100, description="Tên thư mục", example="Nhạc EDM")
+class PlaylistCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100, description="Tên playlist", example="Nhạc EDM")
 
-class FolderUpdate(BaseModel):
-    name: str = Field(..., min_length=1, max_length=100, description="Tên thư mục mới", example="Nhạc Chill")
+class PlaylistUpdate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100, description="Tên playlist mới", example="Nhạc Chill")
 
-class AddSongToFolderRequest(BaseModel):
-    song_id: str = Field(..., description="Mã bài hát cần thêm/chuyển vào thư mục")
-    from_folder_id: Optional[str] = Field(default=None, description="Mã thư mục cũ nếu đây là thao tác di chuyển bài hát")
+class AddSongToPlaylistRequest(BaseModel):
+    song_id: str = Field(..., description="Mã bài hát cần thêm vào playlist")
+    from_playlist_id: Optional[str] = Field(default=None, description="Mã playlist cũ nếu đây là thao tác chuyển bài")
+    from_folder_id: Optional[str] = Field(default=None, description="Tương thích ngược với from_folder_id")
 
-class FolderResponse(BaseModel):
+class PlaylistResponse(BaseModel):
     id: str
     name: str
     user_id: str
@@ -61,7 +62,7 @@ class FolderResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-class FolderDetailResponse(BaseModel):
+class PlaylistDetailResponse(BaseModel):
     id: str
     name: str
     user_id: str
@@ -73,5 +74,13 @@ class FolderDetailResponse(BaseModel):
     songs: List[dict] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
+
+# Aliases tương thích ngược với Folder
+FolderCreate = PlaylistCreate
+FolderUpdate = PlaylistUpdate
+AddSongToFolderRequest = AddSongToPlaylistRequest
+FolderResponse = PlaylistResponse
+FolderDetailResponse = PlaylistDetailResponse
+
 
 
