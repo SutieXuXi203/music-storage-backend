@@ -38,12 +38,16 @@ class SongResponse(SongBase):
         populate_by_name = True
 
 
-# --- FOLDERS (Thư mục bộ sưu tập liên kết lưu trữ Drive) ---
 class FolderCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=100, description="Tên thư mục", example="Nhạc Acoustic")
+    cover_url: Optional[str] = Field(default=None, description="Đường link ảnh bìa thư mục")
 
 class FolderUpdate(BaseModel):
-    name: str = Field(..., min_length=1, max_length=100, description="Tên thư mục mới", example="Nhạc Lofi")
+    name: Optional[str] = Field(default=None, min_length=1, max_length=100, description="Tên thư mục mới", example="Nhạc Lofi")
+    cover_url: Optional[str] = Field(default=None, description="Đường link ảnh bìa mới")
+
+class FolderCoverUpdate(BaseModel):
+    cover_url: Optional[str] = Field(default=None, description="Đường link ảnh bìa mới (None nếu muốn gỡ)")
 
 class AddSongToFolderRequest(BaseModel):
     song_id: str = Field(..., description="Mã bài hát cần thêm vào thư mục")

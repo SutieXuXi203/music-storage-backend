@@ -1,7 +1,9 @@
+import os
+import tempfile
 from datetime import datetime, timezone
 from typing import List, Optional
 from bson import ObjectId
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 
 from app.database import get_database
 from app.models import (
@@ -32,18 +34,20 @@ async def _get_folder_cover(db, song_ids: List[str]) -> Optional[str]:
     return None
 
 
-def serialize_folder_summary(doc: dict, cover_url: Optional[str] = None) -> dict:
+def serialize_folder_summary(doc: dict, first_song_cover: Optional[str] = None) -> dict:
     song_ids = doc.get("song_ids", [])
+    # Ưu tiên cover_url được đặt riêng cho thư mục, nếu không có mới lấy first_song_cover
+    final_cover = doc.get("cover_url") or first_song_cover
     return {
         "id": str(doc["_id"]),
         "name": doc.get("name", ""),
         "user_id": doc.get("user_id", ""),
         "user_username": doc.get("user_username", ""),
         "drive_folder_id": doc.get("drive_folder_id"),
-        "is_default": doc.get("is_default", False),
+        "is_default": False,
         "song_ids": song_ids,
         "song_count": len(song_ids),
-        "cover_url": cover_url,
+        "cover_url": final_cover,
         "created_at": doc.get("created_at"),
         "updated_at": doc.get("updated_at") or doc.get("created_at"),
     }
@@ -52,7 +56,7 @@ def serialize_folder_summary(doc: dict, cover_url: Optional[str] = None) -> dict
 @router.get(
     "",
     summary="Lấy danh sách thư mục",
-    description="Trả về danh sách tất cả các thư mục của người dùng hiện tại (thư mục mặc định xếp đầu tiên)",
+    description="Trả về danh sách tất cả các thư mục của người dùng hiện tại",
 )
 async def list_folders(current_user: dict = Depends(get_current_user)):
     db = get_database()
@@ -66,13 +70,13 @@ async def list_folders(current_user: dict = Depends(get_current_user)):
     except Exception as e:
         print(f"[List Folders] Cảnh báo đồng bộ thư mục người dùng: {e}")
 
-    cursor = db.folders.find({"user_id": user_id_str}).sort([("is_default", -1), ("created_at", -1)])
+    cursor = db.folders.find({"user_id": user_id_str}).sort([("created_at", -1)])
     folders = []
 
     async for doc in cursor:
         song_ids = doc.get("song_ids", [])
-        cover_url = await _get_folder_cover(db, song_ids)
-        folders.append(serialize_folder_summary(doc, cover_url))
+        song_cover = await _get_folder_cover(db, song_ids)
+        folders.append(serialize_folder_summary(doc, song_cover))
 
     return {
         "status": "success",
@@ -105,9 +109,11 @@ async def create_folder(
     if existing:
         raise HTTPException(status_code=400, detail=f"Thư mục '{name}' đã tồn tại.")
 
+    cover_url = req.cover_url.strip() if req.cover_url and req.cover_url.strip() else None
     now = datetime.now(timezone.utc)
     folder_doc = {
         "name": name,
+        "cover_url": cover_url,
         "user_id": user_id_str,
         "user_username": current_user.get("username"),
         "is_default": False,
@@ -176,8 +182,8 @@ async def get_folder(
 
 @router.put(
     "/{folder_id}",
-    summary="Đổi tên thư mục",
-    description="Cập nhật tên mới cho thư mục",
+    summary="Cập nhật thư mục (Tên / Ảnh bìa)",
+    description="Cập nhật tên mới và/hoặc ảnh bìa cho thư mục",
 )
 async def update_folder(
     folder_id: str,
@@ -198,24 +204,104 @@ async def update_folder(
     if str(folder.get("user_id")) != str(current_user["_id"]):
         raise HTTPException(status_code=403, detail="Bạn không có quyền chỉnh sửa thư mục này.")
 
-    new_name = req.name.strip()
-    if not new_name:
-        raise HTTPException(status_code=400, detail="Tên thư mục không được để trống.")
+    update_fields = {}
+    if req.name is not None:
+        new_name = req.name.strip()
+        if not new_name:
+            raise HTTPException(status_code=400, detail="Tên thư mục không được để trống.")
+        update_fields["name"] = new_name
+
+    if req.cover_url is not None:
+        clean_cover = req.cover_url.strip()
+        update_fields["cover_url"] = clean_cover if clean_cover else None
+
+    if not update_fields:
+        raise HTTPException(status_code=400, detail="Không có thông tin thay đổi.")
+
+    now = datetime.now(timezone.utc)
+    update_fields["updated_at"] = now
+    await db.folders.update_one(
+        {"_id": ObjectId(folder_id)},
+        {"$set": update_fields},
+    )
+
+    updated_folder = await db.folders.find_one({"_id": ObjectId(folder_id)})
+    song_ids = updated_folder.get("song_ids", [])
+    first_cover = await _get_folder_cover(db, song_ids)
+
+    return {
+        "status": "success",
+        "message": "Đã cập nhật thư mục thành công.",
+        "data": serialize_folder_summary(updated_folder, first_cover),
+    }
+
+
+@router.post(
+    "/{folder_id}/cover-image",
+    summary="Tải lên ảnh bìa cho thư mục",
+    description="Upload file hình ảnh từ thiết bị và lưu làm ảnh bìa thư mục",
+)
+async def upload_folder_cover(
+    folder_id: str,
+    file: UploadFile = File(...),
+    current_user: dict = Depends(get_current_user),
+):
+    db = get_database()
+    if db is None:
+        raise HTTPException(status_code=500, detail="Chưa kết nối cơ sở dữ liệu MongoDB.")
+
+    if not ObjectId.is_valid(folder_id):
+        raise HTTPException(status_code=400, detail="Mã thư mục không hợp lệ.")
+
+    folder = await db.folders.find_one({"_id": ObjectId(folder_id)})
+    if not folder:
+        raise HTTPException(status_code=404, detail="Không tìm thấy thư mục.")
+
+    if str(folder.get("user_id")) != str(current_user["_id"]):
+        raise HTTPException(status_code=403, detail="Bạn không có quyền chỉnh sửa thư mục này.")
+
+    if not file.content_type or not file.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="Tập tin tải lên phải là hình ảnh (JPEG, PNG, WEBP, ...).")
+
+    content = await file.read()
+    suffix = os.path.splitext(file.filename or "")[1] or ".jpg"
+
+    cover_url = None
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        tmp.write(content)
+        tmp_path = tmp.name
+
+    try:
+        from app.services.drive_service import DriveService
+        drive_service = DriveService()
+        user_drive_id = current_user.get("drive_folder_id")
+        drive_res = await drive_service.upload_file(
+            local_file_path=tmp_path,
+            filename=f"cover_{folder_id}_{file.filename}",
+            mime_type=file.content_type,
+            folder_id=user_drive_id,
+        )
+        cover_url = drive_res.get("web_content_link") or drive_res.get("web_view_link")
+    except Exception as e:
+        print(f"[Upload Folder Cover] Không thể đẩy lên Drive: {e}, fallback data URI")
+        import base64
+        b64 = base64.b64encode(content).decode("utf-8")
+        cover_url = f"data:{file.content_type};base64,{b64}"
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
 
     now = datetime.now(timezone.utc)
     await db.folders.update_one(
         {"_id": ObjectId(folder_id)},
-        {"$set": {"name": new_name, "updated_at": now}},
+        {"$set": {"cover_url": cover_url, "updated_at": now}},
     )
 
-    folder["name"] = new_name
-    folder["updated_at"] = now
-    cover_url = await _get_folder_cover(db, folder.get("song_ids", []))
-
+    updated_folder = await db.folders.find_one({"_id": ObjectId(folder_id)})
     return {
         "status": "success",
-        "message": f"Đã đổi tên thư mục thành '{new_name}'.",
-        "data": serialize_folder_summary(folder, cover_url),
+        "message": "Đã tải lên và cập nhật ảnh bìa thư mục thành công.",
+        "data": serialize_folder_summary(updated_folder),
     }
 
 
@@ -241,9 +327,6 @@ async def delete_folder(
 
     if str(folder.get("user_id")) != str(current_user["_id"]):
         raise HTTPException(status_code=403, detail="Bạn không có quyền xóa thư mục này.")
-
-    if folder.get("is_default"):
-        raise HTTPException(status_code=400, detail="Không thể xóa thư mục chính của tài khoản.")
 
     await db.folders.delete_one({"_id": ObjectId(folder_id)})
 
