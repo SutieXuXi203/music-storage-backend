@@ -410,15 +410,6 @@ async def upload_song_file(
         result = await db.songs.insert_one(song_doc)
         song_doc["_id"] = result.inserted_id
 
-        # Gán bài hát vào thư mục đầu tiên của người dùng nếu có
-        song_id_str = str(result.inserted_id)
-        default_update = {
-            "$addToSet": {"song_ids": song_id_str},
-            "$set": {"updated_at": datetime.now(timezone.utc)},
-        }
-        first_folder = await db.folders.find_one({"user_id": str(current_user["_id"])})
-        if first_folder:
-            await db.folders.update_one({"_id": first_folder["_id"]}, default_update)
 
         return {
             "status": "success",

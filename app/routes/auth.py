@@ -244,39 +244,6 @@ async def get_or_create_user_drive_folder(user: dict) -> str:
             user["drive_folder_id"] = folder_id
             user["drive_folder_name"] = folder_name
 
-    # Đảm bảo collection folders luôn có bản ghi thư mục gốc tương ứng cho user
-    db = get_database()
-    if db is not None:
-        existing_folder = await db.folders.find_one({
-            "$or": [
-                {"user_id": user_id_str, "drive_folder_id": folder_id},
-                {"user_id": user_id_str, "is_default": True},
-            ]
-        })
-        if not existing_folder:
-            # Lấy tất cả bài hát hiện có của user này để đưa vào song_ids nếu có
-            songs_cursor = db.songs.find({"user_id": user_id_str})
-            user_song_ids = [str(s["_id"]) async for s in songs_cursor]
-
-            now = datetime.now(timezone.utc)
-            folder_doc = {
-                "name": folder_name,
-                "user_id": user_id_str,
-                "user_username": user.get("username"),
-                "drive_folder_id": folder_id,
-                "is_default": False,
-                "song_ids": user_song_ids,
-                "created_at": now,
-                "updated_at": now,
-            }
-            res = await db.folders.insert_one(folder_doc)
-            await db.users.update_one(
-                {"_id": user["_id"]},
-                {"$set": {"default_folder_id": str(res.inserted_id)}},
-            )
-            user["default_folder_id"] = str(res.inserted_id)
-
-
     return folder_id
 
 
@@ -322,21 +289,7 @@ async def register(req: RegisterRequest):
 
     now = datetime.now(timezone.utc)
 
-    # 1. Tạo thư mục trong collection folders với tên đầy đủ của user và gán user_id
-    folder_doc = {
-        "name": user_folder_name,
-        "user_id": user_id_str,
-        "user_username": req.username,
-        "drive_folder_id": drive_folder_id,
-        "is_default": False,
-        "song_ids": [],
-        "created_at": now,
-        "updated_at": now,
-    }
-    f_result = await db.folders.insert_one(folder_doc)
-    default_folder_id = str(f_result.inserted_id)
-
-    # 2. Tạo bản ghi trong collection users
+    # Tạo bản ghi trong collection users
     user_doc = {
         "_id": user_id_obj,
         "username": req.username,
@@ -345,7 +298,6 @@ async def register(req: RegisterRequest):
         "full_name": req.full_name,
         "drive_folder_id": drive_folder_id,
         "drive_folder_name": user_folder_name,
-        "default_folder_id": default_folder_id,
         "is_active": True,
         "created_at": now,
         "updated_at": now,
@@ -360,7 +312,6 @@ async def register(req: RegisterRequest):
         "email": req.email,
         "drive_folder_id": drive_folder_id,
         "drive_folder_name": user_folder_name,
-        "default_folder_id": default_folder_id,
     }
 
 

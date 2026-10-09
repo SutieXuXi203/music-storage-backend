@@ -64,12 +64,6 @@ async def list_folders(current_user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=500, detail="Chưa kết nối cơ sở dữ liệu MongoDB.")
 
     user_id_str = str(current_user["_id"])
-    from app.routes.auth import get_or_create_user_drive_folder
-    try:
-        await get_or_create_user_drive_folder(current_user)
-    except Exception as e:
-        print(f"[List Folders] Cảnh báo đồng bộ thư mục người dùng: {e}")
-
     cursor = db.folders.find({"user_id": user_id_str}).sort([("created_at", -1)])
     folders = []
 
