@@ -38,18 +38,18 @@ class SongResponse(SongBase):
         populate_by_name = True
 
 
-class PlaylistCreate(BaseModel):
-    name: str = Field(..., min_length=1, max_length=100, description="Tên playlist", example="Nhạc EDM")
+# --- FOLDERS (Thư mục bộ sưu tập liên kết lưu trữ Drive) ---
+class FolderCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100, description="Tên thư mục", example="Nhạc Acoustic")
 
-class PlaylistUpdate(BaseModel):
-    name: str = Field(..., min_length=1, max_length=100, description="Tên playlist mới", example="Nhạc Chill")
+class FolderUpdate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100, description="Tên thư mục mới", example="Nhạc Lofi")
 
-class AddSongToPlaylistRequest(BaseModel):
-    song_id: str = Field(..., description="Mã bài hát cần thêm vào playlist")
-    from_playlist_id: Optional[str] = Field(default=None, description="Mã playlist cũ nếu đây là thao tác chuyển bài")
-    from_folder_id: Optional[str] = Field(default=None, description="Tương thích ngược với from_folder_id")
+class AddSongToFolderRequest(BaseModel):
+    song_id: str = Field(..., description="Mã bài hát cần thêm vào thư mục")
+    from_folder_id: Optional[str] = Field(default=None, description="Mã thư mục cũ nếu đây là thao tác di chuyển bài hát")
 
-class PlaylistResponse(BaseModel):
+class FolderResponse(BaseModel):
     id: str
     name: str
     user_id: str
@@ -62,7 +62,7 @@ class PlaylistResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-class PlaylistDetailResponse(BaseModel):
+class FolderDetailResponse(BaseModel):
     id: str
     name: str
     user_id: str
@@ -75,12 +75,43 @@ class PlaylistDetailResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-# Aliases tương thích ngược với Folder
-FolderCreate = PlaylistCreate
-FolderUpdate = PlaylistUpdate
-AddSongToFolderRequest = AddSongToPlaylistRequest
-FolderResponse = PlaylistResponse
-FolderDetailResponse = PlaylistDetailResponse
+
+# --- PLAYLISTS (Danh sách phát nhạc cá nhân độc lập) ---
+class PlaylistCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100, description="Tên playlist", example="Nhạc EDM")
+    description: Optional[str] = Field(default=None, max_length=300, description="Mô tả playlist")
+
+class PlaylistUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, min_length=1, max_length=100, description="Tên playlist mới")
+    description: Optional[str] = Field(default=None, max_length=300, description="Mô tả playlist mới")
+
+class AddSongToPlaylistRequest(BaseModel):
+    song_id: str = Field(..., description="Mã bài hát cần thêm vào playlist")
+
+class PlaylistResponse(BaseModel):
+    id: str
+    name: str
+    description: Optional[str] = None
+    user_id: str
+    user_username: Optional[str] = None
+    song_ids: List[str] = Field(default_factory=list)
+    song_count: int = 0
+    cover_url: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+class PlaylistDetailResponse(BaseModel):
+    id: str
+    name: str
+    description: Optional[str] = None
+    user_id: str
+    user_username: Optional[str] = None
+    song_ids: List[str] = Field(default_factory=list)
+    song_count: int = 0
+    songs: List[dict] = Field(default_factory=list)
+    created_at: datetime
+    updated_at: datetime
+
 
 
 

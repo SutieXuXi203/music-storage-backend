@@ -7,7 +7,8 @@ from app.database import close_mongo_connection, connect_to_mongo
 from app.routes.auth import router as auth_router
 from app.routes.youtube import router as youtube_router
 from app.routes.songs import router as songs_router
-from app.routes.playlists import router as playlists_router, folders_router
+from app.routes.folders import router as folders_router
+from app.routes.playlists import router as playlists_router
 
 
 @asynccontextmanager

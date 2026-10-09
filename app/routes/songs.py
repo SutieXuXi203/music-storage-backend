@@ -411,13 +411,12 @@ async def upload_song_file(
         result = await db.songs.insert_one(song_doc)
         song_doc["_id"] = result.inserted_id
 
-        # Tự động gán bài hát vào playlist/thư mục mặc định của người dùng
+        # Tự động gán bài hát vào thư mục mặc định của người dùng
         song_id_str = str(result.inserted_id)
         default_update = {
             "$addToSet": {"song_ids": song_id_str},
             "$set": {"updated_at": datetime.now(timezone.utc)},
         }
-        await db.playlists.update_one({"user_id": str(current_user["_id"]), "is_default": True}, default_update)
         await db.folders.update_one({"user_id": str(current_user["_id"]), "is_default": True}, default_update)
 
         return {

@@ -373,10 +373,6 @@ async def handle_download_request(
                         "$addToSet": {"song_ids": song_id},
                         "$set": {"updated_at": datetime.now(timezone.utc)},
                     }
-                    await db.playlists.update_one(
-                        {"user_id": str(current_user["_id"]), "is_default": True},
-                        yt_update,
-                    )
                     await db.folders.update_one(
                         {"user_id": str(current_user["_id"]), "is_default": True},
                         yt_update,
