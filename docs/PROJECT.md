@@ -144,7 +144,7 @@ Lưu trữ thông tin metadata bài hát và mã định danh (ID) trên Google 
 ### Giai đoạn 2: Quản lý Danh sách & Tương tác (Kế hoạch tiếp theo)
 - [ ] Tính năng **Playlists**: Tạo danh sách phát, thêm/xóa bài hát khỏi playlist.
 - [ ] Tính năng **Favorites**: Đánh dấu bài hát yêu thích.
-- [ ] Trích xuất hoặc lấy lời bài hát (Lyrics / LRC file) tự động.
+- [x] Trích xuất hoặc lấy lời bài hát (Lyrics / LRC file) tự động (hỗ trợ LRCLIB & YouTube Captions).
 - [ ] Hỗ trợ đa dạng nguồn tải ngoài YouTube (SoundCloud, ZingMP3).
 
 ### Giai đoạn 3: Tối ưu Hóa & Vận hành Quy mô lớn

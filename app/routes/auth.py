@@ -417,7 +417,12 @@ async def refresh_token(req: RefreshRequest):
         raise invalid_exc
 
     new_access = create_access_token(user_id, user["username"])
-    return {"access_token": new_access, "token_type": "bearer", "expires_in": settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60}
+    return {
+        "access_token": new_access,
+        "refresh_token": req.refresh_token,
+        "token_type": "bearer",
+        "expires_in": settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+    }
 
 
 @router.post(

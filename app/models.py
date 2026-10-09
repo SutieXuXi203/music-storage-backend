@@ -15,6 +15,9 @@ class SongBase(BaseModel):
     thumbnail_drive_file_id: Optional[str] = Field(default=None, description="Mã định danh ảnh thumbnail (tương thích ngược)")
     user_id: Optional[str] = Field(default=None, description="Mã định danh người dùng tải lên")
     user_username: Optional[str] = Field(default=None, description="Tên đăng nhập người dùng tải lên")
+    lyrics: Optional[str] = Field(default=None, description="Lời bài hát dạng văn bản (plain text)")
+    synced_lyrics: Optional[str] = Field(default=None, description="Lời bài hát đồng bộ thời gian dạng LRC ([mm:ss.xx])")
+    lrc_drive_file_id: Optional[str] = Field(default=None, description="Mã định danh file .lrc trên Google Drive")
 
 class SongCreate(SongBase):
     pass
@@ -25,6 +28,8 @@ class SongUpdate(BaseModel):
     album: Optional[str] = None
     duration: Optional[int] = None
     genre: Optional[str] = None
+    lyrics: Optional[str] = None
+    synced_lyrics: Optional[str] = None
 
 class SongResponse(SongBase):
     id: str

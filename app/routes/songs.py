@@ -10,6 +10,7 @@ from jose import jwt, JWTError
 from app.config import settings
 from app.database import get_database
 
+from pydantic import BaseModel
 from app.models import SongCreate, SongUpdate
 from app.routes.auth import get_current_user
 from app.services.drive_service import drive_service
@@ -49,6 +50,10 @@ def serialize_song(song: dict) -> dict:
         song_copy["cover_url"] = f"https://lh3.googleusercontent.com/d/{cover_id}"
     elif "cover_url" not in song_copy:
         song_copy["cover_url"] = None
+
+    song_copy["lyrics"] = song_copy.get("lyrics")
+    song_copy["synced_lyrics"] = song_copy.get("synced_lyrics")
+    song_copy["lrc_drive_file_id"] = song_copy.get("lrc_drive_file_id")
 
     return song_copy
 
@@ -261,7 +266,6 @@ async def get_song_cover(song_id: str):
             media_type="image/jpeg",
             headers={
                 "Cache-Control": "public, max-age=86400",
-                "Access-Control-Allow-Origin": "*",
             },
         )
 
@@ -277,7 +281,6 @@ async def get_song_cover(song_id: str):
                 media_type="image/jpeg",
                 headers={
                     "Cache-Control": "public, max-age=86400",
-                    "Access-Control-Allow-Origin": "*",
                 },
             )
     except Exception as e:
@@ -285,6 +288,104 @@ async def get_song_cover(song_id: str):
 
     return RedirectResponse(f"https://lh3.googleusercontent.com/d/{cover_file_id}")
 
+
+class UpdateLyricsRequest(BaseModel):
+    lyrics: Optional[str] = None
+    synced_lyrics: Optional[str] = None
+
+
+@router.get(
+    "/{song_id}/lyrics",
+    summary="Lấy lời bài hát (Lyrics / LRC)",
+    description="Lấy lời bài hát plain text hoặc synced LRC. Tự động tìm kiếm nếu bài hát chưa có lời.",
+)
+async def get_song_lyrics(
+    song_id: str,
+    refresh: bool = Query(False, description="Bắt buộc tìm kiếm lại lời mới từ nhà cung cấp"),
+):
+    db = get_database()
+    if db is None:
+        raise HTTPException(status_code=500, detail="Chưa kết nối cơ sở dữ liệu.")
+
+    try:
+        obj_id = ObjectId(song_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Song ID không hợp lệ.")
+
+    song = await db.songs.find_one({"_id": obj_id})
+    if not song:
+        raise HTTPException(status_code=404, detail="Không tìm thấy bài hát.")
+
+    lyrics = song.get("lyrics")
+    synced_lyrics = song.get("synced_lyrics")
+
+    if refresh or (not lyrics and not synced_lyrics):
+        from app.services.lyrics_service import lyrics_service
+        fetched = lyrics_service.get_lyrics(
+            title=song.get("title", ""),
+            artist=song.get("artist"),
+            duration=song.get("duration"),
+        )
+        if fetched.get("lyrics") or fetched.get("synced_lyrics"):
+            lyrics = fetched.get("lyrics")
+            synced_lyrics = fetched.get("synced_lyrics")
+            await db.songs.update_one(
+                {"_id": obj_id},
+                {"$set": {"lyrics": lyrics, "synced_lyrics": synced_lyrics}}
+            )
+
+    return {
+        "status": "success",
+        "song_id": song_id,
+        "title": song.get("title"),
+        "artist": song.get("artist"),
+        "lyrics": lyrics,
+        "synced_lyrics": synced_lyrics,
+        "has_synced": bool(synced_lyrics),
+    }
+
+
+@router.put(
+    "/{song_id}/lyrics",
+    summary="Cập nhật lời bài hát",
+    description="Cập nhật thủ công lời bài hát hoặc nội dung LRC đồng bộ",
+)
+async def update_song_lyrics(
+    song_id: str,
+    req: UpdateLyricsRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    db = get_database()
+    if db is None:
+        raise HTTPException(status_code=500, detail="Chưa kết nối cơ sở dữ liệu.")
+
+    try:
+        obj_id = ObjectId(song_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Song ID không hợp lệ.")
+
+    song = await db.songs.find_one({"_id": obj_id})
+    if not song:
+        raise HTTPException(status_code=404, detail="Không tìm thấy bài hát.")
+
+    if song.get("user_id") and str(song.get("user_id")) != str(current_user["_id"]):
+        raise HTTPException(status_code=403, detail="Bạn không có quyền chỉnh sửa bài hát này.")
+
+    update_fields = {}
+    if req.lyrics is not None:
+        update_fields["lyrics"] = req.lyrics
+    if req.synced_lyrics is not None:
+        update_fields["synced_lyrics"] = req.synced_lyrics
+
+    if update_fields:
+        await db.songs.update_one({"_id": obj_id}, {"$set": update_fields})
+
+    updated_song = await db.songs.find_one({"_id": obj_id})
+    return {
+        "status": "success",
+        "message": "Cập nhật lời bài hát thành công.",
+        "data": serialize_song(updated_song),
+    }
 
 
 @router.delete(

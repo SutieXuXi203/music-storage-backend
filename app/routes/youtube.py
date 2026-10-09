@@ -13,6 +13,7 @@ from app.config import settings
 from app.database import get_database
 from app.routes.auth import get_current_user
 from app.services.drive_service import drive_service
+from app.services.lyrics_service import lyrics_service, clean_title_and_artist
 
 router = APIRouter(prefix="/api", tags=["Tải nhạc YouTube"])
 
@@ -215,14 +216,23 @@ def process_youtube_download(url: str, format_type: str) -> dict:
         if not os.path.exists(file_path):
             raise RuntimeError(f"Không tìm thấy file kết quả sau khi tải: {file_path}")
 
-        safe_title = sanitize_filename(title) or "music"
+        # Chuẩn hóa tên bài hát và nghệ sĩ (loại bỏ từ rác YouTube MV/Official...)
+        clean_t, clean_a = clean_title_and_artist(title, artist)
+        final_title = clean_t if clean_t else title
+        final_artist = clean_a if clean_a else artist
+
+        safe_title = sanitize_filename(final_title) or sanitize_filename(title) or "music"
         download_filename = f"{safe_title}.{target_ext}"
         file_size = os.path.getsize(file_path)
 
+        # Lấy lời bài hát (LRCLIB hoặc phụ đề YouTube)
+        lyrics_data = lyrics_service.get_lyrics(final_title, final_artist, duration, video_info=info)
+
         return {
             "id": video_id,
-            "title": title,
-            "artist": artist,
+            "title": final_title,
+            "raw_title": title,
+            "artist": final_artist,
             "duration": duration,
             "thumbnail": thumbnail,
             "format": target_ext,
@@ -230,6 +240,9 @@ def process_youtube_download(url: str, format_type: str) -> dict:
             "download_filename": download_filename,
             "file_size": file_size,
             "media_type": media_type,
+            "lyrics": lyrics_data.get("lyrics"),
+            "synced_lyrics": lyrics_data.get("synced_lyrics"),
+            "lyrics_source": lyrics_data.get("source"),
         }
     except Exception as e:
         raise HTTPException(
@@ -310,7 +323,24 @@ async def handle_download_request(
                 download_thumbnail_file, result.get("thumbnail"), result["id"], result["title"]
             )
 
-            # Upload cả file nhạc và ảnh thumbnail vào đúng một thư mục con subfolder_id
+            # Tạo file .lrc cục bộ nếu có synced_lyrics hoặc plain lyrics
+            lrc_info = None
+            lrc_content = result.get("synced_lyrics") or result.get("lyrics")
+            if lrc_content:
+                lrc_ext = "lrc" if result.get("synced_lyrics") else "txt"
+                lrc_filename = f"{result['id']}_lyrics.{lrc_ext}"
+                lrc_local_path = os.path.join(DOWNLOADS_DIR, lrc_filename)
+                try:
+                    with open(lrc_local_path, "w", encoding="utf-8") as f_lrc:
+                        f_lrc.write(lrc_content)
+                    lrc_info = {
+                        "file_path": lrc_local_path,
+                        "filename": f"{song_subfolder}.{lrc_ext}",
+                    }
+                except Exception as e:
+                    print(f"[YouTube Route] Lỗi ghi file lyrics tạm: {e}")
+
+            # Upload cả file nhạc, thumbnail và file lời (.lrc) vào đúng một thư mục con subfolder_id
             tasks = [
                 drive_service.upload_file(
                     local_file_path=result["file_path"],
@@ -328,14 +358,32 @@ async def handle_download_request(
                         folder_id=subfolder_id,
                     )
                 )
+            if lrc_info:
+                tasks.append(
+                    drive_service.upload_file(
+                        local_file_path=lrc_info["file_path"],
+                        filename=lrc_info["filename"],
+                        mime_type="text/plain",
+                        folder_id=subfolder_id,
+                    )
+                )
 
             upload_results = await asyncio.gather(*tasks, return_exceptions=True)
             drive_res = upload_results[0] if not isinstance(upload_results[0], Exception) else {}
-            drive_thumb_res = (
-                upload_results[1]
-                if len(upload_results) > 1 and not isinstance(upload_results[1], Exception)
-                else None
-            )
+            
+            idx = 1
+            drive_thumb_res = None
+            if thumb_info:
+                if len(upload_results) > idx and not isinstance(upload_results[idx], Exception):
+                    drive_thumb_res = upload_results[idx]
+                idx += 1
+
+            drive_lrc_res = None
+            if lrc_info:
+                if len(upload_results) > idx and not isinstance(upload_results[idx], Exception):
+                    drive_lrc_res = upload_results[idx]
+                idx += 1
+
             drive_data = drive_res
             drive_data["subfolder_name"] = song_subfolder
             drive_data["subfolder_id"] = subfolder_id
@@ -351,6 +399,7 @@ async def handle_download_request(
             db = get_database()
             if db is not None:
                 cover_id = drive_thumb_res.get("file_id") if drive_thumb_res else None
+                lrc_file_id = drive_lrc_res.get("file_id") if drive_lrc_res else None
                 song_doc = {
                     "title": result["title"],
                     "artist": result["artist"],
@@ -360,6 +409,9 @@ async def handle_download_request(
                     "drive_file_id": drive_res.get("file_id"),
                     "cover_drive_file_id": cover_id,
                     "thumbnail_drive_file_id": cover_id,
+                    "lrc_drive_file_id": lrc_file_id,
+                    "lyrics": result.get("lyrics"),
+                    "synced_lyrics": result.get("synced_lyrics"),
                     "format": result["format"],
                     "file_size": result["file_size"],
                     "user_id": str(current_user["_id"]) if current_user else None,
@@ -395,6 +447,9 @@ async def handle_download_request(
         "file_size": result["file_size"],
         "download_filename": result["download_filename"],
         "download_url": file_serve_url,
+        "lyrics": result.get("lyrics"),
+        "synced_lyrics": result.get("synced_lyrics"),
+        "lyrics_source": result.get("lyrics_source"),
     }
 
     if save_to_drive and drive_data:
@@ -404,11 +459,12 @@ async def handle_download_request(
         resp_data["direct_stream_url"] = drive_data.get("direct_stream_url")
         resp_data["drive_web_view_link"] = drive_data.get("web_view_link")
         resp_data["drive_subfolder_name"] = drive_data.get("subfolder_name")
-        # Thông tin ảnh thumbnail đã upload lên Google Drive
         if drive_data.get("thumbnail_file_id"):
             resp_data["thumbnail_file_id"] = drive_data.get("thumbnail_file_id")
             resp_data["thumbnail_web_view_link"] = drive_data.get("thumbnail_web_view_link")
             resp_data["thumbnail_direct_url"] = drive_data.get("thumbnail_direct_url")
+        if drive_lrc_res and drive_lrc_res.get("file_id"):
+            resp_data["lrc_drive_file_id"] = drive_lrc_res.get("file_id")
 
     return resp_data
 
