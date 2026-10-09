@@ -8,7 +8,6 @@ from app.routes.auth import router as auth_router
 from app.routes.youtube import router as youtube_router
 from app.routes.songs import router as songs_router
 from app.routes.folders import router as folders_router
-from app.routes.playlists import router as playlists_router
 
 
 @asynccontextmanager
@@ -52,7 +51,6 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 app.include_router(auth_router)
 app.include_router(youtube_router)
 app.include_router(songs_router)
-app.include_router(playlists_router)
 app.include_router(folders_router)
 
 

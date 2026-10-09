@@ -332,7 +332,6 @@ async def delete_song(
         "$pull": {"song_ids": str(obj_id)},
         "$set": {"updated_at": datetime.now(timezone.utc)},
     }
-    await db.playlists.update_many({"user_id": str(current_user["_id"])}, update_pull)
     await db.folders.update_many({"user_id": str(current_user["_id"])}, update_pull)
 
     return {
